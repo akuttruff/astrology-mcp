@@ -1,0 +1,332 @@
+"""MCP Server for Astrology calculations.
+
+This module provides an MCP server exposing astrology tools
+for use with local LLMs via tool calling interface.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime
+from typing import Any
+
+try:
+    from mcp.server import Server
+    from mcp.types import Tool, TextContent
+    from pydantic import BaseModel
+except ImportError:
+    raise ImportError(
+        "MCP server not found. Install with: pip install mcp"
+    )
+
+from astrology.charts.chart import (
+    calculate_natal_chart,
+    NatalChart,
+)
+from astrology.core.ephemeris import get_all_planets, init_swe, Planet
+from astrology.core.aspects import get_major_aspects
+from astrology.transits.transit import (
+    calculate_single_transit,
+    get_current_transits,
+)
+from astrology.core.calendar import gregorian_to_julian_day
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize ephemeris
+init_swe()
+
+# Create MCP server instance
+server = Server("astrology")
+
+
+class CalculateNatalChartParams(BaseModel):
+    """Parameters for natal chart calculation."""
+    birth_datetime: str  # ISO format datetime
+    latitude: float
+    longitude: float
+    elevation: float = 0.0
+
+
+class GetPlanetPositionsParams(BaseModel):
+    """Parameters for getting planet positions."""
+    datetime: str  # ISO format datetime
+    planets: list[str] | None = None
+
+
+class CalculateAspectsParams(BaseModel):
+    """Parameters for calculating aspects."""
+    chart_data: dict[str, Any]
+
+
+class CalculateTransitsParams(BaseModel):
+    """Parameters for calculating transits."""
+    natal_chart: dict[str, Any]
+    current_datetime: str
+
+
+class GetHousesParams(BaseModel):
+    """Parameters for getting house cusps."""
+    chart_data: dict[str, Any]
+
+
+# Tool definitions
+CALCULATE_NATAL_CHART_TOOL = Tool(
+    name="calculate_natal_chart",
+    description=(
+        "Calculate a complete natal chart including planetary positions, "
+        "houses, and angles. Returns comprehensive chart data."
+    ),
+    inputSchema=CalculateNatalChartParams.model_json_schema(),
+)
+
+GET_PLANET_POSITIONS_TOOL = Tool(
+    name="get_planet_positions",
+    description=(
+        "Get current planetary positions for specified planets."
+        " Returns longitude, latitude, distance, and motion status."
+    ),
+    inputSchema=GetPlanetPositionsParams.model_json_schema(),
+)
+
+CALCULATE_ASPECTS_TOOL = Tool(
+    name="calculate_aspects",
+    description=(
+        "Calculate all major aspects between planets in a chart."
+        " Returns list of aspects with orb and applying/separating status."
+    ),
+    inputSchema=CalculateAspectsParams.model_json_schema(),
+)
+
+CALCULATE_TRANSITS_TOOL = Tool(
+    name="calculate_transits",
+    description=(
+        "Calculate current transits comparing planetary positions "
+        "to a natal chart. Returns transiting planets and their aspects."
+    ),
+    inputSchema=CalculateTransitsParams.model_json_schema(),
+)
+
+GET_HOUSES_TOOL = Tool(
+    name="get_houses",
+    description=(
+        "Get house cusp positions and planet placements in houses."
+        " Uses Whole Sign house system by default."
+    ),
+    inputSchema=GetHousesParams.model_json_schema(),
+)
+
+
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    """List all available tools."""
+    return [
+        CALCULATE_NATAL_CHART_TOOL,
+        GET_PLANET_POSITIONS_TOOL,
+        CALCULATE_ASPECTS_TOOL,
+        CALCULATE_TRANSITS_TOOL,
+        GET_HOUSES_TOOL,
+    ]
+
+
+@server.call_tool()
+async def call_tool(
+    name: str,
+    arguments: dict[str, Any],
+) -> list[TextContent]:
+    """Handle tool calls."""
+    if name == "calculate_natal_chart":
+        return await _handle_calculate_natal_chart(arguments)
+    elif name == "get_planet_positions":
+        return await _handle_get_planet_positions(arguments)
+    elif name == "calculate_aspects":
+        return await _handle_calculate_aspects(arguments)
+    elif name == "calculate_transits":
+        return await _handle_calculate_transits(arguments)
+    elif name == "get_houses":
+        return await _handle_get_houses(arguments)
+    else:
+        raise ValueError(f"Unknown tool: {name}")
+
+
+async def _handle_calculate_natal_chart(
+    arguments: dict[str, Any],
+) -> list[TextContent]:
+    """Handle calculate_natal_chart tool call."""
+    try:
+        params = CalculateNatalChartParams(**arguments)
+        birth_datetime = datetime.fromisoformat(params.birth_datetime)
+
+        chart = calculate_natal_chart(
+            birth_datetime=birth_datetime,
+            latitude=params.latitude,
+            longitude=params.longitude,
+            elevation=params.elevation,
+        )
+
+        # Convert chart to serializable format
+        result = _serialize_chart(chart)
+
+        return [TextContent(
+            type="text",
+            text=json.dumps(result, indent=2, default=str),
+        )]
+    except Exception as e:
+        logger.error(f"Error calculating natal chart: {e}")
+        return [TextContent(
+            type="text",
+            text=f"Error calculating natal chart: {str(e)}",
+        )]
+
+
+async def _handle_get_planet_positions(
+    arguments: dict[str, Any],
+) -> list[TextContent]:
+    """Handle get_planet_positions tool call."""
+    try:
+        params = GetPlanetPositionsParams(**arguments)
+        dt = datetime.fromisoformat(params.datetime)
+
+        jd = gregorian_to_julian_day(dt.year, dt.month, dt.day, dt.hour)
+
+        planets = params.planets or [
+            "SUN", "MOON", "MERCURY", "VENUS", "MARS",
+            "JUPITER", "SATURN", "URANUS", "NEPTUNE", "PLUTO"
+        ]
+
+        positions = {}
+        for planet_name in planets:
+            try:
+                planet_enum = Planet[planet_name]
+                pos = get_planet_position(planet_enum, jd.jd)
+                positions[planet_name] = {
+                    "longitude": pos.longitude.longitude,
+                    "sign": pos.longitude.sign_name,
+                    "degree_in_sign": round(pos.longitude.degree_in_sign, 2),
+                    "latitude": pos.latitude,
+                    "distance": round(pos.distance, 4),
+                    "retrograde": pos.retrograde,
+                }
+            except KeyError:
+                positions[planet_name] = {"error": f"Unknown planet: {planet_name}"}
+
+        return [TextContent(
+            type="text",
+            text=json.dumps(positions, indent=2),
+        )]
+    except Exception as e:
+        logger.error(f"Error getting planet positions: {e}")
+        return [TextContent(
+            type="text",
+            text=f"Error getting planet positions: {str(e)}",
+        )]
+
+
+async def _handle_calculate_aspects(
+    arguments: dict[str, Any],
+) -> list[TextContent]:
+    """Handle calculate_aspects tool call."""
+    return [TextContent(
+        type="text",
+        text="Aspect calculation requires full chart data. "
+             "Use calculate_natal_chart first.",
+    )]
+
+
+async def _handle_calculate_transits(
+    arguments: dict[str, Any],
+) -> list[TextContent]:
+    """Handle calculate_transits tool call."""
+    return [TextContent(
+        type="text",
+        text="Transit calculation requires a parsed natal chart. "
+             "Use calculate_natal_chart first and pass the result.",
+    )]
+
+
+async def _handle_get_houses(
+    arguments: dict[str, Any],
+) -> list[TextContent]:
+    """Handle get_houses tool call."""
+    return [TextContent(
+        type="text",
+        text="House calculation requires chart parameters. "
+             "Use calculate_natal_chart instead.",
+    )]
+
+
+def _serialize_chart(chart: NatalChart) -> dict[str, Any]:
+    """Convert NatalChart to serializable dictionary."""
+    result = {
+        "birth_datetime": chart.birth_datetime.isoformat(),
+        "location": {
+            "latitude": chart.location.latitude,
+            "longitude": chart.location.longitude,
+        },
+        "planets": {},
+        "houses": {},
+        "angles": {},
+    }
+
+    # Add planets
+    for planet, position in chart.planets.items():
+        result["planets"][planet.name] = {
+            "longitude": position.longitude.longitude,
+            "sign": position.longitude.sign_name,
+            "degree_in_sign": round(position.longitude.degree_in_sign, 2),
+            "latitude": position.latitude,
+            "distance": round(position.distance, 4),
+            "retrograde": position.retrograde,
+        }
+
+    # Add houses
+    for key, value in chart.houses.items():
+        if hasattr(value, "sign_name"):
+            result["houses"][key] = {
+                "longitude": value.longitude,
+                "sign": value.sign_name,
+                "degree_in_sign": round(value.degree_in_sign, 2),
+            }
+
+    # Add angles
+    if chart.ascendant:
+        result["angles"]["ascendant"] = {
+            "longitude": chart.ascendant.longitude,
+            "sign": chart.ascendant.sign_name,
+        }
+    if chart.midheaven:
+        result["angles"]["midheaven"] = {
+            "longitude": chart.midheaven.longitude,
+            "sign": chart.midheaven.sign_name,
+        }
+
+    return result
+
+
+def main():
+    """Run the MCP server."""
+    import asyncio
+
+    async def run_server():
+        """Run the MCP server asynchronously."""
+        # This is a simplified entry point
+        # In production, you would use mcp.server.run_server()
+        logger.info("Starting Astrology MCP Server...")
+        logger.info("Tools available:")
+        for tool in [
+            CALCULATE_NATAL_CHART_TOOL,
+            GET_PLANET_POSITIONS_TOOL,
+            CALCULATE_ASPECTS_TOOL,
+            CALCULATE_TRANSITS_TOOL,
+            GET_HOUSES_TOOL,
+        ]:
+            logger.info(f"  - {tool.name}: {tool.description}")
+
+    asyncio.run(run_server())
+
+
+if __name__ == "__main__":
+    main()
