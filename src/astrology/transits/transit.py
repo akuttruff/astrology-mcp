@@ -10,6 +10,7 @@ from ..core.aspects import (
     Aspect,
     AspectType,
     DEFAULT_ORBS,
+    calculate_aspect,
     calculate_planet_aspect,
     get_major_aspects,
 )
