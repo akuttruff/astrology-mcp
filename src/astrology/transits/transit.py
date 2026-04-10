@@ -107,10 +107,22 @@ def calculate_single_transit(
             natal_pos,
         )
         if aspect:
+            # Extract longitude value from ZonalPosition (if needed)
+            natal_lon = (
+                natal_pos.longitude
+                if isinstance(natal_pos.longitude, (int, float))
+                else natal_pos.longitude.longitude
+            )
+            transit_lon = (
+                transiting_pos.longitude
+                if isinstance(transiting_pos.longitude, (int, float))
+                else transiting_pos.longitude.longitude
+            )
+
             event = TransitEvent(
                 planet=planet,
-                natal_position=natal_pos.longitude,  # Already a float (0-360 degrees)
-                transit_position=transiting_pos.longitude,  # Already a float (0-360 degrees)
+                natal_position=natal_lon,  # Longitude in degrees (0-360)
+                transit_position=transit_lon,  # Longitude in degrees (0-360)
                 aspect_type=aspect.type,
                 orb=aspect.orb,
             )
@@ -133,7 +145,8 @@ def get_current_transits(
         TransitReport with all transits
     """
     if current_datetime is None:
-        current_datetime = datetime.utcnow()
+        from datetime import timezone
+        current_datetime = datetime.now(timezone.utc)
 
     # Get current planetary positions
     jd = gregorian_to_julian_day(

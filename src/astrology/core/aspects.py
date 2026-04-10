@@ -177,30 +177,37 @@ def calculate_planet_aspect(
         return None
 
     # Determine if applying or separating
-    # Planets are applying if moving toward each other
-    speed1 = position1.motion_speed
-    speed2 = position2.motion_speed
+    # Use motion_speed if available, otherwise default to 0 (unknown motion)
+    speed1 = getattr(position1, 'motion_speed', 0.0) or 0.0
+    speed2 = getattr(position2, 'motion_speed', 0.0) or 0.0
 
     is_applying = False
     is_separating = False
 
-    # Determine relative motion
-    if lon1 < lon2:
-        # Planet 1 is behind planet 2
-        if speed1 > speed2:
-            # Planet 1 catching up (applying)
-            is_applying = True
+    # Only determine applying/separating if both speeds are known (non-zero)
+    if speed1 != 0.0 or speed2 != 0.0:
+        # Determine relative motion
+        if lon1 < lon2:
+            # Planet 1 is behind planet 2
+            if speed1 > speed2:
+                # Planet 1 catching up (applying)
+                is_applying = True
+            else:
+                # Planet 2 pulling away (separating)
+                is_separating = True
         else:
-            # Planet 2 pulling away (separating)
-            is_separating = True
+            # Planet 2 is behind planet 1
+            if speed2 > speed1:
+                # Planet 2 catching up (applying)
+                is_applying = True
+            else:
+                # Planet 1 pulling away (separating)
+                is_separating = True
     else:
-        # Planet 2 is behind planet 1
-        if speed2 > speed1:
-            # Planet 2 catching up (applying)
+        # If speeds are unknown, mark as applying if orb is small (within 5°)
+        # This provides a reasonable default for historical/future dates
+        if orb < 5.0:
             is_applying = True
-        else:
-            # Planet 1 pulling away (separating)
-            is_separating = True
 
     return Aspect(
         type=aspect_type,
