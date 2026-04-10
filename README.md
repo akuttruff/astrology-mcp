@@ -98,44 +98,34 @@ chart = calculate_natal_chart(
 
 **Note**: Without timezone info, the library assumes input is in local time and converts it to UTC. For the most accurate results, always include timezone information.
 
-### Using with LM Studio
+### Using with Any MCP Client
 
-The MCP server exposes tools that can be called via tool calling interface.
+The server uses the Model Context Protocol (MCP) and can be integrated with any MCP-compatible client.
 
-**Setup:**
-1. Copy `mcp.json` from this project to your LM Studio MCP config directory (typically `~/.lmstudio/mcp.json`)
-2. Restart LM Studio
+**Quick Start:**
+1. Copy `mcp.json` from this project to your MCP client's configuration directory
+2. Restart or reload your MCP client
 
-**Example configuration:**
-```json
-{
-  "mcpServers": {
-    "astrology": {
-      "command": "/path/to/astrology-mcp/.venv/bin/python",
-      "args": [
-        "-c",
-        "import sys; sys.path.insert(0, '/path/to/astrology-mcp/src'); import astrology_mcp_server.main; astrology_mcp_server.main.main()"
-      ]
-    }
-  }
-}
+**Manual Setup:**
+```bash
+# Activate virtual environment first
+source /path/to/astrology-mcp/.venv/bin/activate
+
+# Run the server
+python -m astrology_mcp_server.main
 ```
 
+The server communicates via stdio, so any MCP client that supports stdio transport can use it.
+
 **Available tools:**
+- `get_current_time` - Get the current UTC date and time
 - `calculate_natal_chart` - Calculate a complete birth chart (birth_datetime with timezone recommended)
 - `get_planet_positions` - Get current planetary positions
 - `calculate_aspects` - Calculate planetary aspects between chart objects
 - `calculate_transits` - Get current transits to a natal chart
 - `get_houses` - Get house positions for planets
 
-**Important**: For accurate natal charts, provide birth datetime with timezone:
-```json
-{
-  "birth_datetime": "1984-05-10T20:44:00-07:00",
-  "latitude": 34.0211,
-  "longitude": -118.3965
-}
-```
+**Important**: For accurate natal charts, provide birth datetime with timezone.
 
 ## Project Structure
 
@@ -201,4 +191,7 @@ If your chart shows incorrect planet signs or house positions:
 
 ## License
 
-MIT License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+**Note**: This project uses Swiss Ephemeris, which is available under a dual license
+(AGPL or Commercial). See the LICENSE file for full details and attribution requirements.
