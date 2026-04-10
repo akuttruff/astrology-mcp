@@ -17,7 +17,21 @@ A Python-based astrology calculation tool using Swiss Ephemeris for use with MCP
 
 ## Installation
 
+### Using a Virtual Environment (Recommended)
+
 ```bash
+# Create and activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### System-wide Installation (Not Recommended)
+
+```bash
+# Install dependencies globally
 pip install -r requirements.txt
 ```
 
@@ -148,6 +162,9 @@ astrology-mcp/
 ## Development
 
 ```bash
+# Ensure virtual environment is activated
+source .venv/bin/activate
+
 # Run tests
 python -m pytest tests/
 
