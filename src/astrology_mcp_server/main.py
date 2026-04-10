@@ -198,8 +198,9 @@ async def _handle_get_planet_positions(
             try:
                 planet_enum = Planet[planet_name]
                 pos = get_planet_position(planet_enum, jd.jd)
+
                 positions[planet_name] = {
-                    "longitude": pos.longitude.longitude,
+                    "longitude": round(pos.longitude.longitude, 4),
                     "sign": pos.longitude.sign_name,
                     "degree_in_sign": round(pos.longitude.degree_in_sign, 2),
                     "latitude": pos.latitude,
