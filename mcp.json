@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "astrology": {
+      "command": "/Users/amiekuttruff/Code/astrology-mcp/.venv/bin/python",
+      "args": [
+        "-c",
+        "import sys; sys.path.insert(0, '/Users/amiekuttruff/Code/astrology-mcp/src'); import astrology_mcp_server.main; astrology_mcp_server.main.main()"
+      ]
+    }
+  }
+}

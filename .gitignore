@@ -31,6 +31,9 @@ debug_*.py
 *.swo
 *~
 
+# Local MCP config (custom per installation)
+mcp.json
+
 # OS files
 .DS_Store
 Thumbs.db

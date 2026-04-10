@@ -39,13 +39,14 @@ logger = logging.getLogger(__name__)
 # Initialize ephemeris
 init_swe()
 
-# Create MCP server instance
-server = Server("astrology")
-
 
 class CalculateNatalChartParams(BaseModel):
-    """Parameters for natal chart calculation."""
-    birth_datetime: str  # ISO format datetime
+    """Parameters for natal chart calculation.
+    
+    IMPORTANT: Provide birth datetime with timezone (e.g., '1984-05-10T20:44:00-07:00' for PDT).
+    Without timezone, the time is assumed to be in local time.
+    """
+    birth_datetime: str  # ISO format datetime with optional timezone
     latitude: float
     longitude: float
     elevation: float = 0.0
@@ -78,7 +79,9 @@ CALCULATE_NATAL_CHART_TOOL = Tool(
     name="calculate_natal_chart",
     description=(
         "Calculate a complete natal chart including planetary positions, "
-        "houses, and angles. Returns comprehensive chart data."
+        "houses, and angles. Returns comprehensive chart data. "
+        "IMPORTANT: Provide birth datetime with timezone (e.g., '1984-05-10T20:44:00-07:00' for PDT). "
+        "Without timezone, the time is assumed to be in local time."
     ),
     inputSchema=CalculateNatalChartParams.model_json_schema(),
 )
@@ -120,45 +123,24 @@ GET_HOUSES_TOOL = Tool(
 )
 
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    """List all available tools."""
-    return [
-        CALCULATE_NATAL_CHART_TOOL,
-        GET_PLANET_POSITIONS_TOOL,
-        CALCULATE_ASPECTS_TOOL,
-        CALCULATE_TRANSITS_TOOL,
-        GET_HOUSES_TOOL,
-    ]
-
-
-@server.call_tool()
-async def call_tool(
-    name: str,
-    arguments: dict[str, Any],
-) -> list[TextContent]:
-    """Handle tool calls."""
-    if name == "calculate_natal_chart":
-        return await _handle_calculate_natal_chart(arguments)
-    elif name == "get_planet_positions":
-        return await _handle_get_planet_positions(arguments)
-    elif name == "calculate_aspects":
-        return await _handle_calculate_aspects(arguments)
-    elif name == "calculate_transits":
-        return await _handle_calculate_transits(arguments)
-    elif name == "get_houses":
-        return await _handle_get_houses(arguments)
-    else:
-        raise ValueError(f"Unknown tool: {name}")
-
-
 async def _handle_calculate_natal_chart(
     arguments: dict[str, Any],
 ) -> list[TextContent]:
     """Handle calculate_natal_chart tool call."""
     try:
         params = CalculateNatalChartParams(**arguments)
-        birth_datetime = datetime.fromisoformat(params.birth_datetime)
+        
+        # Parse datetime - LM Studio may pass ISO string without timezone
+        birth_dt_str = params.birth_datetime
+        birth_datetime = datetime.fromisoformat(birth_dt_str)
+        
+        # If no timezone, assume the user provided local time and warn
+        if birth_datetime.tzinfo is None:
+            logger.warning(
+                f"No timezone info in birth datetime '{birth_dt_str}'. "
+                "Assuming input is in local time. For accurate results, "
+                "provide timezone-aware datetime (e.g., '1984-05-10T20:44:00-07:00' for PDT)."
+            )
 
         chart = calculate_natal_chart(
             birth_datetime=birth_datetime,
@@ -175,10 +157,11 @@ async def _handle_calculate_natal_chart(
             text=json.dumps(result, indent=2, default=str),
         )]
     except Exception as e:
-        logger.error(f"Error calculating natal chart: {e}")
+        logger.error(f"Error calculating natal chart: {e}", exc_info=True)
         return [TextContent(
             type="text",
-            text=f"Error calculating natal chart: {str(e)}",
+            text=f"Error calculating natal chart: {str(e)}. "
+                 f"Ensure birth datetime includes timezone info (e.g., '1984-05-10T20:44:00-07:00').",
         )]
 
 
@@ -312,18 +295,67 @@ def main():
 
     async def run_server():
         """Run the MCP server asynchronously."""
-        # This is a simplified entry point
-        # In production, you would use mcp.server.run_server()
         logger.info("Starting Astrology MCP Server...")
-        logger.info("Tools available:")
-        for tool in [
+        
+        # Create tools list
+        tools = [
             CALCULATE_NATAL_CHART_TOOL,
             GET_PLANET_POSITIONS_TOOL,
             CALCULATE_ASPECTS_TOOL,
             CALCULATE_TRANSITS_TOOL,
             GET_HOUSES_TOOL,
-        ]:
+        ]
+        
+        # Create server instance
+        server = Server(name="astrology")
+        
+        # Register tools with the server
+        for tool in tools:
             logger.info(f"  - {tool.name}: {tool.description}")
+
+        # Run server with stdio transport
+        from mcp.server.stdio import stdio_server
+        
+        # Create server instance with tools
+        server = Server(name="astrology")
+        
+        @server.list_tools()
+        async def list_tools() -> list[Tool]:
+            """List all available tools."""
+            return [
+                CALCULATE_NATAL_CHART_TOOL,
+                GET_PLANET_POSITIONS_TOOL,
+                CALCULATE_ASPECTS_TOOL,
+                CALCULATE_TRANSITS_TOOL,
+                GET_HOUSES_TOOL,
+            ]
+
+        @server.call_tool()
+        async def call_tool(
+            name: str,
+            arguments: dict[str, Any],
+        ) -> list[TextContent]:
+            """Handle tool calls."""
+            if name == "calculate_natal_chart":
+                return await _handle_calculate_natal_chart(arguments)
+            elif name == "get_planet_positions":
+                return await _handle_get_planet_positions(arguments)
+            elif name == "calculate_aspects":
+                return await _handle_calculate_aspects(arguments)
+            elif name == "calculate_transits":
+                return await _handle_calculate_transits(arguments)
+            elif name == "get_houses":
+                return await _handle_get_houses(arguments)
+            else:
+                raise ValueError(f"Unknown tool: {name}")
+
+        async with stdio_server() as (read_stream, write_stream):
+            logger.info("Server ready, waiting for connections...")
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options()
+            )
 
     asyncio.run(run_server())
 

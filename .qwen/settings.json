@@ -5,7 +5,16 @@
       "Bash(python *)",
       "Bash(source *)",
       "Bash(.venv/bin/python *)",
-      "Bash(./venv/bin/python *)"
+      "Bash(./venv/bin/python *)",
+      "Bash(git add *)",
+      "Bash(sleep *)",
+      "Bash(pkill *)",
+      "Bash(kill *)",
+      "Bash(import *)",
+      "Bash(sys.path.insert)",
+      "Bash(from *)",
+      "Bash(print)",
+      "Bash(pyeof)"
     ]
   },
   "$version": 3
