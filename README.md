@@ -1,6 +1,6 @@
 # Astrology MCP Tool
 
-A Python-based astrology calculation tool using Swiss Ephemeris for use with MCP servers and local LLMs (via LM Studio).
+A Python-based astrology calculation tool using Swiss Ephemeris for use with MCP servers and local LLMs.
 
 ## Features
 
@@ -195,3 +195,34 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Note**: This project uses Swiss Ephemeris, which is available under a dual license
 (AGPL or Commercial). See the LICENSE file for full details and attribution requirements.
+
+## Using with LM Studio
+
+LM Studio is a popular interface for running local LLMs and integrating MCP servers.
+
+**Setup:**
+1. Copy `mcp.json` from this project to your LM Studio MCP config directory (typically `~/.lmstudio/mcp.json`)
+2. Restart LM Studio
+
+**Example configuration:**
+```json
+{
+  "mcpServers": {
+    "astrology": {
+      "command": "/path/to/astrology-mcp/.venv/bin/python",
+      "args": [
+        "-c",
+        "import sys; sys.path.insert(0, '/path/to/astrology-mcp/src'); import astrology_mcp_server.main; astrology_mcp_server.main.main()"
+      ]
+    }
+  }
+}
+```
+
+**Available tools in LM Studio:**
+- `get_current_time` - Get the current UTC date and time
+- `calculate_natal_chart` - Calculate a complete birth chart (birth_datetime with timezone recommended)
+- `get_planet_positions` - Get current planetary positions
+- `calculate_aspects` - Calculate planetary aspects between chart objects
+- `calculate_transits` - Get current transits to a natal chart
+- `get_houses` - Get house positions for planets
