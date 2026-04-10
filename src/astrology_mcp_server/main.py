@@ -32,8 +32,14 @@ from astrology.transits.transit import (
 )
 from astrology.core.calendar import gregorian_to_julian_day
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging - write to file instead of stderr to avoid interfering with MCP protocol
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.FileHandler('/tmp/astrology_mcp_server.log', mode='a'),
+    ],
+)
 logger = logging.getLogger(__name__)
 
 # Suppress MCP library INFO logs to reduce noise in LM Studio
