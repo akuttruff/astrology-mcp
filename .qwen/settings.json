@@ -17,7 +17,9 @@
       "Bash(pyeof)",
       "Bash(async *)",
       "Bash(result *)",
-      "Bash(asyncio.run)"
+      "Bash(asyncio.run)",
+      "Bash(.venv/bin/pip *)",
+      "Bash(./.venv/bin/python *)"
     ]
   },
   "$version": 3
