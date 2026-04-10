@@ -19,7 +19,8 @@
       "Bash(result *)",
       "Bash(asyncio.run)",
       "Bash(.venv/bin/pip *)",
-      "Bash(./.venv/bin/python *)"
+      "Bash(./.venv/bin/python *)",
+      "WebFetch(modelcontextprotocol.io)"
     ]
   },
   "$version": 3

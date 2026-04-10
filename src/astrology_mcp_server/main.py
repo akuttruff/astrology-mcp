@@ -84,12 +84,27 @@ class CalculateAspectsParams(BaseModel):
 class CalculateTransitsParams(BaseModel):
     """Parameters for calculating transits."""
     natal_chart: dict[str, Any]
-    current_datetime: str
+    current_datetime: str | None = None
 
 
 class GetHousesParams(BaseModel):
     """Parameters for getting house cusps."""
     chart_data: dict[str, Any]
+
+
+class PlanetPositionInput(BaseModel):
+    """Input model for a planet position."""
+    longitude: float
+    sign: str | None = None
+    degree_in_sign: float | None = None
+
+
+class NatalChartInput(BaseModel):
+    """Input model for a natal chart (for transit calculations)."""
+    birth_datetime: str
+    latitude: float
+    longitude: float
+    planets: dict[str, PlanetPositionInput]
 
 
 # Tool definitions
@@ -107,8 +122,10 @@ CALCULATE_NATAL_CHART_TOOL = Tool(
 GET_PLANET_POSITIONS_TOOL = Tool(
     name="get_planet_positions",
     description=(
-        "Get current planetary positions for specified planets."
-        " Returns longitude, latitude, distance, and motion status."
+        "Get current planetary positions for specified planets. "
+        "IMPORTANT: Ensure the datetime parameter is set to the CURRENT date/time, not a past or future date. "
+        "Use get_current_time tool first to verify the current UTC datetime before calling this tool. "
+        "Returns longitude, latitude, distance, and motion status."
     ),
     inputSchema=GetPlanetPositionsParams.model_json_schema(),
 )
@@ -122,20 +139,12 @@ CALCULATE_ASPECTS_TOOL = Tool(
     inputSchema=CalculateAspectsParams.model_json_schema(),
 )
 
-CALCULATE_TRANSITS_TOOL = Tool(
-    name="calculate_transits",
-    description=(
-        "Calculate current transits comparing planetary positions "
-        "to a natal chart. Returns transiting planets and their aspects."
-    ),
-    inputSchema=CalculateTransitsParams.model_json_schema(),
-)
-
 GET_HOUSES_TOOL = Tool(
     name="get_houses",
     description=(
-        "Get house cusp positions and planet placements in houses."
-        " Uses Whole Sign house system by default."
+        "Get house cusp positions and planet placements in houses. "
+        "Uses Whole Sign house system by default. "
+        "For complete chart data including transits, use calculate_natal_chart followed by calculate_transits."
     ),
     inputSchema=GetHousesParams.model_json_schema(),
 )
@@ -144,12 +153,24 @@ GET_CURRENT_TIME_TOOL = Tool(
     name="get_current_time",
     description=(
         "Get the current date and time in UTC. "
-        "Useful for calculating transits or current planetary positions."
+        "Always call this tool first to get the accurate current date/time before calculating transits "
+        "or getting current planetary positions. Returns UTC datetime with year, month, day, hour, minute, second."
     ),
     inputSchema={
         "type": "object",
         "properties": {},
     },
+)
+
+CALCULATE_TRANSITS_TOOL = Tool(
+    name="calculate_transits",
+    description=(
+        "Calculate current transits comparing planetary positions to a natal chart. "
+        "IMPORTANT: Always call get_current_time FIRST to verify the current date before using this tool. "
+        "Pass the natal chart data (from calculate_natal_chart) and current datetime to get transiting planets "
+        "and their aspects to natal positions. Returns transit events sorted by orb (tightest first)."
+    ),
+    inputSchema=CalculateTransitsParams.model_json_schema(),
 )
 
 CALCULATE_PLANET_ASPECT_TOOL = Tool(
@@ -223,6 +244,16 @@ async def _handle_get_planet_positions(
         params = GetPlanetPositionsParams(**arguments)
         dt = datetime.fromisoformat(params.datetime)
 
+        # Validate date is current (within 3 days of now) to prevent using old/future dates
+        from datetime import timezone, timedelta
+        now = datetime.now(timezone.utc)
+        date_diff = abs((dt - now).total_seconds())
+        
+        # Warn if date is more than 3 days off from current
+        if date_diff > 3 * 24 * 3600:  # 3 days in seconds
+            date_diff_days = round(date_diff / 86400)
+            logger.warning(f"Date {dt} is {date_diff_days} days from current time")
+        
         jd = gregorian_to_julian_day(dt.year, dt.month, dt.day, dt.hour)
 
         planets = params.planets or [
@@ -248,9 +279,18 @@ async def _handle_get_planet_positions(
             except KeyError:
                 positions[planet_name] = {"error": f"Unknown planet: {planet_name}"}
 
+        # Include current time in response to help LLM track the correct date
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        
+        result = {
+            "current_datetime": now.isoformat(),
+            "positions": positions,
+        }
+
         return [TextContent(
             type="text",
-            text=json.dumps(positions, indent=2),
+            text=json.dumps(result, indent=2),
         )]
     except Exception as e:
         logger.error(f"Error getting planet positions: {e}")
@@ -288,22 +328,318 @@ async def _handle_calculate_aspects(
     arguments: dict[str, Any],
 ) -> list[TextContent]:
     """Handle calculate_aspects tool call."""
-    return [TextContent(
-        type="text",
-        text="Aspect calculation requires full chart data. "
-             "Use calculate_natal_chart first.",
-    )]
+    try:
+        # Get chart data from arguments
+        chart_data = arguments.get("chart_data", {})
+        
+        if not chart_data:
+            return [TextContent(
+                type="text",
+                text="Error: chart_data is required. Use calculate_natal_chart first.",
+            )]
+        
+        # Reconstruct planet positions from chart data
+        planets_data = chart_data.get("planets", {})
+        
+        if not planets_data:
+            return [TextContent(
+                type="text",
+                text="Error: No planet data found in chart. Use calculate_natal_chart first.",
+            )]
+        
+        from astrology.core.ephemeris import Planet, PlanetPosition
+        from astrology.core.aspects import get_major_aspects, ZonalPosition
+        
+        planets = {}
+        for planet_name, pos_data in planets_data.items():
+            try:
+                planet_enum = Planet[planet_name]
+                longitude_data = pos_data.get("longitude", {})
+                if isinstance(longitude_data, dict):
+                    zonal_pos = ZonalPosition(
+                        longitude=longitude_data.get("longitude", 0),
+                        sign=longitude_data.get("sign", ""),
+                        degree_in_sign=longitude_data.get("degree_in_sign", 0),
+                        sign_name=longitude_data.get("sign_name", ""),
+                    )
+                else:
+                    zonal_pos = ZonalPosition(
+                        longitude=longitude_data,
+                        sign="",
+                        degree_in_sign=0,
+                        sign_name="",
+                    )
+                
+                planets[planet_enum] = PlanetPosition(
+                    planet=planet_enum,
+                    longitude=zonal_pos,
+                    latitude=pos_data.get("latitude", 0),
+                    distance=pos_data.get("distance", 1.0),
+                    retrograde=pos_data.get("retrograde", False),
+                    motion_speed=0.0,
+                )
+            except KeyError:
+                continue
+        
+        # Calculate major aspects
+        aspects = get_major_aspects(planets)
+        
+        if not aspects:
+            return [TextContent(
+                type="text",
+                text="No major aspects found in this chart.",
+            )]
+        
+        # Format results
+        lines = ["Major Natal Aspects"]
+        lines.append("=" * 50)
+        
+        for aspect in aspects[:20]:  # Top 20 most significant
+            lines.append(
+                f"{aspect.planet1.name} - {aspect.planet2.name}: "
+                f"{aspect.type.name.title()} ({aspect.orb:.1f}°, "
+                f"{'applying' if aspect.is_applying else 'separating'})"
+            )
+        
+        if len(aspects) > 20:
+            lines.append(f"... and {len(aspects) - 20} more aspects")
+        
+        return [TextContent(
+            type="text",
+            text="\n".join(lines),
+        )]
+        
+    except Exception as e:
+        logger.error(f"Error calculating aspects: {e}", exc_info=True)
+        return [TextContent(
+            type="text",
+            text=f"Error calculating aspects: {str(e)}",
+        )]
 
 
 async def _handle_calculate_transits(
     arguments: dict[str, Any],
 ) -> list[TextContent]:
     """Handle calculate_transits tool call."""
-    return [TextContent(
-        type="text",
-        text="Transit calculation requires a parsed natal chart. "
-             "Use calculate_natal_chart first and pass the result.",
-    )]
+    from astrology.charts.chart import NatalChart
+    from astrology.transits.transit import get_current_transits
+    from astrology.core.ephemeris import Planet, PlanetPosition, ZonalPosition
+
+    try:
+        # Parse natal chart from arguments
+        natal_data = arguments.get("natal_chart", {})
+
+        if not natal_data:
+            return [TextContent(
+                type="text",
+                text="Error: natal_chart is required. Use calculate_natal_chart to get chart data.",
+            )]
+
+        # Validate birth_datetime
+        birth_dt_str = natal_data.get("birth_datetime")
+        if not birth_dt_str:
+            return [TextContent(
+                type="text",
+                text="Error: natal_chart missing 'birth_datetime'. Include ISO format datetime with timezone (e.g., '1984-05-10T20:44:00-07:00').",
+            )]
+
+        try:
+            birth_dt = datetime.fromisoformat(birth_dt_str)
+        except ValueError as e:
+            return [TextContent(
+                type="text",
+                text=f"Error: Invalid birth_datetime format. Use ISO format with timezone (e.g., '1984-05-10T20:44:00-07:00'). Got: {str(e)}",
+            )]
+
+        # Get location from natal chart data
+        location_data = natal_data.get("location", {})
+        if not location_data:
+            return [TextContent(
+                type="text",
+                text="Error: natal_chart missing 'location' data. Include latitude and longitude.",
+            )]
+
+        latitude = location_data.get("latitude")
+        longitude = location_data.get("longitude")
+        if latitude is None or longitude is None:
+            return [TextContent(
+                type="text",
+                text="Error: location must include 'latitude' and 'longitude'.",
+            )]
+
+        # Reconstruct planet positions from serialized data
+        planets_data = natal_data.get("planets", {})
+        if not planets_data:
+            return [TextContent(
+                type="text",
+                text="Error: natal_chart missing 'planets' data. Use calculate_natal_chart to get complete chart data.",
+            )]
+
+        natal_planets = {}
+        for planet_name, pos_data in planets_data.items():
+            try:
+                planet_enum = Planet[planet_name]
+            except KeyError:
+                logger.warning(f"Unknown planet in natal chart: {planet_name}, skipping")
+                continue
+
+            # Extract longitude - handle both dict and float formats
+            longitude_data = pos_data.get("longitude", 0)
+            if isinstance(longitude_data, dict):
+                zonal_pos = ZonalPosition(
+                    longitude=longitude_data.get("longitude", 0),
+                    sign_index=int(longitude_data.get("longitude", 0) // 30) % 12,
+                    sign_name=longitude_data.get("sign", ""),
+                    degree_in_sign=longitude_data.get("degree_in_sign", 0),
+                )
+            else:
+                # It's a float (just longitude in degrees)
+                zonal_pos = ZonalPosition(
+                    longitude=longitude_data,
+                    sign_index=int(longitude_data // 30) % 12,
+                    degree_in_sign=longitude_data % 30,
+                    sign_name="",
+                )
+
+            natal_planets[planet_enum] = PlanetPosition(
+                planet=planet_enum,
+                longitude=zonal_pos,
+                latitude=pos_data.get("latitude", 0.0),
+                distance=pos_data.get("distance", 1.0),
+                retrograde=pos_data.get("retrograde", False),
+                motion_speed=0.0,  # Default to 0 if not provided
+            )
+
+        # Add angles (ascendant, midheaven) if present
+        angles = natal_data.get("angles", {})
+        if "ascendant" in angles and Planet.ASCENDANT not in natal_planets:
+            asc_data = angles["ascendant"]
+            if isinstance(asc_data, dict):
+                zonal_pos = ZonalPosition(
+                    longitude=asc_data.get("longitude", 0),
+                    sign_index=int(asc_data.get("longitude", 0) // 30) % 12,
+                    sign_name=asc_data.get("sign", ""),
+                    degree_in_sign=asc_data.get("degree_in_sign", 0),
+                )
+            else:
+                zonal_pos = ZonalPosition(
+                    longitude=asc_data,
+                    sign_index=int(asc_data // 30) % 12,
+                    degree_in_sign=asc_data % 30,
+                    sign_name="",
+                )
+            natal_planets[Planet.ASCENDANT] = PlanetPosition(
+                planet=Planet.ASCENDANT,
+                longitude=zonal_pos,
+                latitude=0.0,
+                distance=1.0,
+                retrograde=False,
+                motion_speed=0.0,
+            )
+
+        if "midheaven" in angles and Planet.MC not in natal_planets:
+            mc_data = angles["midheaven"]
+            if isinstance(mc_data, dict):
+                zonal_pos = ZonalPosition(
+                    longitude=mc_data.get("longitude", 0),
+                    sign_index=int(mc_data.get("longitude", 0) // 30) % 12,
+                    sign_name=mc_data.get("sign", ""),
+                    degree_in_sign=mc_data.get("degree_in_sign", 0),
+                )
+            else:
+                zonal_pos = ZonalPosition(
+                    longitude=mc_data,
+                    sign_index=int(mc_data // 30) % 12,
+                    degree_in_sign=mc_data % 30,
+                    sign_name="",
+                )
+            natal_planets[Planet.MC] = PlanetPosition(
+                planet=Planet.MC,
+                longitude=zonal_pos,
+                latitude=0.0,
+                distance=1.0,
+                retrograde=False,
+                motion_speed=0.0,
+            )
+
+        # Get transit datetime - use current time if not provided
+        current_dt_str = arguments.get("current_datetime")
+        if current_dt_str is None:
+            # Try to get from natal_data for backwards compatibility
+            current_dt_str = natal_data.get("current_datetime")
+
+        if current_dt_str:
+            try:
+                current_dt = datetime.fromisoformat(current_dt_str.replace('Z', '+00:00'))
+            except ValueError:
+                from datetime import timezone
+                current_dt = datetime.now(timezone.utc)
+        else:
+            from datetime import timezone
+            current_dt = datetime.now(timezone.utc)
+
+        # Warn if the provided date is stale (more than 7 days from now)
+        from datetime import timezone, timedelta
+        now = datetime.now(timezone.utc)
+        date_diff = abs((current_dt - now).total_seconds())
+
+        warning_lines = []
+        if date_diff > 7 * 24 * 3600:  # 7 days in seconds
+            date_diff_days = round(date_diff / 86400)
+            logger.warning(f"Transit calculation using stale date {current_dt} ({date_diff_days} days old)")
+            warning_lines.append(f"WARNING: Using date {current_dt.strftime('%Y-%m-%d')} which is {date_diff_days} days old. "
+                               "Call get_current_time to get the current date.")
+
+        # Create minimal NatalChart for transit calculation
+        natal_chart = NatalChart(
+            birth_datetime=birth_dt,
+            location=None,  # Will be set below
+            chart_time=None,
+            planets=natal_planets,
+            houses={},
+            house_positions={},
+            ascendant=None,
+            descendant=None,
+            midheaven=None,
+            ic=None,
+            lunar_north_node=None,
+            lunar_south_node=None,
+            Lilith=None,
+        )
+
+        # Get current transits
+        report = get_current_transits(natal_chart, current_dt)
+
+        # Format results
+        lines = ["Current Transits Report"]
+        lines.append("=" * 50)
+
+        if warning_lines:
+            lines.extend(warning_lines)
+            lines.append("")
+
+        for transit in report.transits[:15]:  # Top 15 most significant
+            aspect_name = transit.aspect_type.name.title()
+            lines.append(
+                f"{transit.planet.name} transiting {aspect_name} "
+                f"natal position (orb: {transit.orb:.2f}°)"
+            )
+
+        if len(report.transits) > 15:
+            lines.append(f"... and {len(report.transits) - 15} more transits")
+
+        return [TextContent(
+            type="text",
+            text="\n".join(lines),
+        )]
+
+    except Exception as e:
+        logger.error(f"Error calculating transits: {e}", exc_info=True)
+        return [TextContent(
+            type="text",
+            text=f"Error calculating transits: {str(e)}. "
+                 "Ensure you pass a valid natal chart from calculate_natal_chart and current datetime.",
+        )]
 
 
 async def _handle_calculate_planet_aspect(
