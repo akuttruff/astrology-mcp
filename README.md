@@ -61,7 +61,7 @@ for planet, house in chart.house_positions.items():
 
 ### With Timezone Support
 
-The library handles timezone-aware datetimes automatically:
+The library handles timezone-aware datetimes automatically. For accurate results, **include timezone information** in your datetime strings:
 
 ```python
 from datetime import datetime, timezone, timedelta
@@ -73,29 +73,63 @@ chart = calculate_natal_chart(
     latitude=34.0211,
     longitude=-118.3965
 )
+
+# Or use ISO format with timezone offset
+chart = calculate_natal_chart(
+    birth_datetime=datetime.fromisoformat("1984-05-10T20:44:00-07:00"),
+    latitude=34.0211,
+    longitude=-118.3965
+)
 ```
+
+**Note**: Without timezone info, the library assumes input is in local time and converts it to UTC. For the most accurate results, always include timezone information.
 
 ### Using with LM Studio
 
-The MCP server exposes tools that can be called via tool calling interface:
+The MCP server exposes tools that can be called via tool calling interface.
 
-```bash
-python -m mcp.server
+**Setup:**
+1. Copy `mcp.json` from this project to your LM Studio MCP config directory (typically `~/.lmstudio/mcp.json`)
+2. Restart LM Studio
+
+**Example configuration:**
+```json
+{
+  "mcpServers": {
+    "astrology": {
+      "command": "/path/to/astrology-mcp/.venv/bin/python",
+      "args": [
+        "-c",
+        "import sys; sys.path.insert(0, '/path/to/astrology-mcp/src'); import astrology_mcp_server.main; astrology_mcp_server.main.main()"
+      ]
+    }
+  }
+}
 ```
 
-Available tools:
-- `calculate_natal_chart` - Calculate a complete birth chart
+**Available tools:**
+- `calculate_natal_chart` - Calculate a complete birth chart (birth_datetime with timezone recommended)
 - `get_planet_positions` - Get current planetary positions
-- `calculate_aspects` - Calculate planetary aspects
-- `calculate_transits` - Get current transits
+- `calculate_aspects` - Calculate planetary aspects between chart objects
+- `calculate_transits` - Get current transits to a natal chart
+- `get_houses` - Get house positions for planets
+
+**Important**: For accurate natal charts, provide birth datetime with timezone:
+```json
+{
+  "birth_datetime": "1984-05-10T20:44:00-07:00",
+  "latitude": 34.0211,
+  "longitude": -118.3965
+}
+```
 
 ## Project Structure
 
 ```
 astrology-mcp/
 ├── src/
-│   ├── mcp/
-│   │   └── astrology_server.py # MCP server entry point
+│   ├── astrology_mcp_server/
+│   │   └── main.py            # MCP server entry point
 │   └── astrology/
 │       ├── __init__.py
 │       ├── core/
@@ -133,7 +167,15 @@ If your chart shows incorrect planet signs or house positions:
 1. **Check timezone handling**: Ensure your datetime has proper timezone info
    ```python
    from datetime import datetime, timezone, timedelta
-   dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
+   
+   # Include timezone offset for accurate conversion to UTC
+   dt = datetime.fromisoformat("1984-05-10T20:44:00-07:00")  # PDT
+   
+   chart = calculate_natal_chart(
+       birth_datetime=dt,
+       latitude=34.0211,
+       longitude=-118.3965
+   )
    ```
 
 2. **Verify ephemeris files**: Make sure Swiss Ephemeris files are downloaded and accessible
