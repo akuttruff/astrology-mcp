@@ -10,6 +10,11 @@ A Python-based astrology calculation tool using Swiss Ephemeris for use with MCP
 - **Transit Analysis**: Track transiting planets and their aspects to natal positions
 - **Progressions**: Solar arc progressions for forecasting
 
+### Supported House Systems
+
+- **Whole Sign** (default) - Each house corresponds to a full zodiac sign
+- Placidus, Equal House, Koch, Porphyry, and Regiomontanus available
+
 ## Installation
 
 ```bash
@@ -32,7 +37,7 @@ The ephemeris files will be automatically detected or you can set the path expli
 
 ```python
 from astrology.charts.chart import calculate_natal_chart
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Create a chart for July 20, 2024 at 14:30 in New York
 chart = calculate_natal_chart(
@@ -48,6 +53,26 @@ print(f"Ascendant: {chart.ascendant.sign_name} {chart.ascendant.degree_in_sign}�
 # Get planetary positions
 for planet, position in chart.planets.items():
     print(f"{planet.name}: {position.longitude.sign_name} {position.longitude.degree_in_sign}°")
+
+# Get house positions
+for planet, house in chart.house_positions.items():
+    print(f"{planet.name} is in House {house}")
+```
+
+### With Timezone Support
+
+The library handles timezone-aware datetimes automatically:
+
+```python
+from datetime import datetime, timezone, timedelta
+
+# PDT (UTC-7) - California daylight saving time
+birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
+chart = calculate_natal_chart(
+    birth_datetime=birth_dt,
+    latitude=34.0211,
+    longitude=-118.3965
+)
 ```
 
 ### Using with LM Studio
@@ -70,7 +95,7 @@ Available tools:
 astrology-mcp/
 ├── src/
 │   ├── mcp/
-│   │   └── server.py          # MCP server entry point
+│   │   └── astrology_server.py # MCP server entry point
 │   └── astrology/
 │       ├── __init__.py
 │       ├── core/
@@ -94,7 +119,26 @@ python -m pytest tests/
 
 # Install in development mode
 pip install -e .
+
+# Run example natal chart (with your birth data)
+python my_natal_chart.py
 ```
+
+## Troubleshooting
+
+### Incorrect Chart Results
+
+If your chart shows incorrect planet signs or house positions:
+
+1. **Check timezone handling**: Ensure your datetime has proper timezone info
+   ```python
+   from datetime import datetime, timezone, timedelta
+   dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
+   ```
+
+2. **Verify ephemeris files**: Make sure Swiss Ephemeris files are downloaded and accessible
+
+3. **Check house system**: Verify you're using the correct house system (default is Whole Sign)
 
 ## License
 
