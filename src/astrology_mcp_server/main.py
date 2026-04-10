@@ -36,6 +36,10 @@ from astrology.core.calendar import gregorian_to_julian_day
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Suppress MCP library INFO logs to reduce noise in LM Studio
+logging.getLogger('mcp').setLevel(logging.WARNING)
+logging.getLogger('mcp.server').setLevel(logging.WARNING)
+
 # Initialize ephemeris
 init_swe()
 
