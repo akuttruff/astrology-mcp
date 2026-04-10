@@ -24,7 +24,7 @@ from astrology.charts.chart import (
     calculate_natal_chart,
     NatalChart,
 )
-from astrology.core.ephemeris import get_all_planets, init_swe, Planet
+from astrology.core.ephemeris import get_all_planets, get_planet_position, init_swe, Planet
 from astrology.core.aspects import get_major_aspects
 from astrology.transits.transit import (
     calculate_single_transit,
@@ -66,6 +66,14 @@ class GetPlanetPositionsParams(BaseModel):
     """Parameters for getting planet positions."""
     datetime: str  # ISO format datetime
     planets: list[str] | None = None
+
+    model_config = {
+        "json_schema_extra": {
+            "properties": {
+                "planets": {"type": "array", "items": {"type": "string"}, "nullable": True}
+            }
+        }
+    }
 
 
 class CalculateAspectsParams(BaseModel):
@@ -138,7 +146,10 @@ GET_CURRENT_TIME_TOOL = Tool(
         "Get the current date and time in UTC. "
         "Useful for calculating transits or current planetary positions."
     ),
-    inputSchema={},
+    inputSchema={
+        "type": "object",
+        "properties": {},
+    },
 )
 
 CALCULATE_PLANET_ASPECT_TOOL = Tool(
@@ -222,7 +233,8 @@ async def _handle_get_planet_positions(
         positions = {}
         for planet_name in planets:
             try:
-                planet_enum = Planet[planet_name]
+                # Convert to uppercase to match enum names (e.g., "Sun" -> "SUN")
+                planet_enum = Planet[planet_name.upper()]
                 pos = get_planet_position(planet_enum, jd.jd)
 
                 positions[planet_name] = {
@@ -448,24 +460,6 @@ def main():
         """Run the MCP server asynchronously."""
         logger.info("Starting Astrology MCP Server...")
 
-        # Create tools list
-        tools = [
-            CALCULATE_NATAL_CHART_TOOL,
-            GET_PLANET_POSITIONS_TOOL,
-            CALCULATE_ASPECTS_TOOL,
-            CALCULATE_TRANSITS_TOOL,
-            GET_HOUSES_TOOL,
-            GET_CURRENT_TIME_TOOL,
-            CALCULATE_PLANET_ASPECT_TOOL,
-        ]
-
-        # Create server instance
-        server = Server(name="astrology")
-
-        # Register tools with the server
-        for tool in tools:
-            logger.info(f"  - {tool.name}: {tool.description}")
-
         # Run server with stdio transport
         from mcp.server.stdio import stdio_server
 
@@ -481,6 +475,7 @@ def main():
                 CALCULATE_ASPECTS_TOOL,
                 CALCULATE_TRANSITS_TOOL,
                 GET_HOUSES_TOOL,
+                GET_CURRENT_TIME_TOOL,
                 CALCULATE_PLANET_ASPECT_TOOL,
             ]
 
