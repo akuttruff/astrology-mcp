@@ -6,15 +6,7 @@ import math
 from enum import Enum, auto
 from typing import NamedTuple
 
-try:
-    import pyswisseph as swe
-except ImportError:
-    try:
-        import swisseph as swe  # fallback for older package name
-    except ImportError:
-        raise ImportError(
-            "Swiss Ephemeris not found. Install with: pip install pyswisseph"
-        )
+import swisseph as swe
 
 
 class Planet(Enum):
