@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv *)",
+      "Bash(python *)",
+      "Bash(source *)",
+      "Bash(.venv/bin/python *)",
+      "Bash(./venv/bin/python *)"
+    ]
+  },
+  "$version": 3
+}

@@ -180,25 +180,25 @@ def _find_planet_house(planet_longitude: float, houses_data: dict) -> int:
     Returns:
         House number (1-12)
     """
-    # For Whole Sign houses, we compare sign index
-    planet_sign = int(planet_longitude // 30)
+    # Get the Ascendant to determine the 1st house sign
+    ascendant = houses_data.get("ascendant")
+    if not ascendant:
+        # Fallback: use the first house cusp
+        cusp = houses_data.get("house_1")
+        if not cusp:
+            return 1
+        asc_sign_index = cusp.sign_index
+    else:
+        asc_sign_index = ascendant.sign_index
 
-    # House cusp signs (assuming Whole Sign system)
-    house_cusps = []
-    for i in range(1, 13):
-        cusp = houses_data.get(f"house_{i}")
-        if cusp:
-            house_cusps.append((i, cusp.sign_index))
+    # For Whole Sign houses, House 1 starts at 0° of the Ascendant's sign
+    # Calculate which house a planet is in based on its longitude relative to ASC sign
+    planet_sign_index = int(planet_longitude // 30)
 
-    # Find the house whose cusp is in the same sign or immediately before
-    current_house = 1
-    for house_num, cusp_sign in house_cusps:
-        if cusp_sign <= planet_sign:
-            current_house = house_num
-        else:
-            break
+    # Calculate house number (1-12) based on sign offset from ASC
+    house_number = ((planet_sign_index - asc_sign_index) % 12) + 1
 
-    return current_house
+    return house_number
 
 
 def get_planet_in_sign(chart: NatalChart, sign_name: str) -> list[Planet]:

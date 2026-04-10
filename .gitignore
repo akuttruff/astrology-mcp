@@ -11,3 +11,29 @@ parts/ sdist/ var/ wheels/ *.egg-info/ .installed.cfg *.egg
 
 # Ephemeris data files (large)
 ephe/
+
+# Virtual environments
+.venv/
+.venv-test/
+venv/
+
+# Debug scripts
+debug_*.py
+
+# Package metadata
+*.egg-info/
+*.egg
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Lock files (optional - uncomment if you don't want to track)
+# uv.lock

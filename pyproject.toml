@@ -9,7 +9,7 @@ description = "Astrological calculation tool using Swiss Ephemeris for MCP serve
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "swisseph>=2.10.0",
+    "pyswisseph>=2.10.0",
     "pydantic>=2.0",
     "mcp>=1.0.0",
 ]

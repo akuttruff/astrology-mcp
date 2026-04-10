@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any
 
 try:
-    from mcp.server import Server
+    from mcp.server.lowlevel import Server
     from mcp.types import Tool, TextContent
     from pydantic import BaseModel
 except ImportError:

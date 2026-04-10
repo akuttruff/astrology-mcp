@@ -156,8 +156,9 @@ def calculate_planet_aspect(
     Returns:
         Aspect if within orb, or None
     """
-    lon1 = position1.longitude.longitude
-    lon2 = position2.longitude.longitude
+    # Extract longitude - handle both ZonalPosition and plain float
+    lon1 = position1.longitude.longitude if hasattr(position1.longitude, 'longitude') else position1.longitude
+    lon2 = position2.longitude.longitude if hasattr(position2.longitude, 'longitude') else position2.longitude
 
     # Get exact aspect angle and type
     aspect_type, exact_angle = calculate_aspect(lon1, lon2)
@@ -179,6 +180,9 @@ def calculate_planet_aspect(
     # Planets are applying if moving toward each other
     speed1 = position1.motion_speed
     speed2 = position2.motion_speed
+
+    is_applying = False
+    is_separating = False
 
     # Determine relative motion
     if lon1 < lon2:

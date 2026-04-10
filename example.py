@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Example usage of the astrology MCP tool."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from astrology.charts.chart import calculate_natal_chart
 from astrology.core.aspects import get_major_aspects
@@ -52,7 +52,7 @@ def main():
     print("\n\n3. Current Transits")
     print("-" * 40)
 
-    current_datetime = datetime.utcnow()
+    current_datetime = datetime.now(timezone.utc)
     transit_report = get_current_transits(chart, current_datetime)
 
     print(f"Transit Date: {current_datetime}")
