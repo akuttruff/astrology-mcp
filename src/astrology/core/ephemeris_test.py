@@ -4,6 +4,7 @@ import math
 
 from .calendar import gregorian_to_julian_day
 from .ephemeris import (
+    Planet,
     get_planet_position,
     get_all_planets,
     calculate_houses,
@@ -27,7 +28,7 @@ def test_mars_position():
     # Initialize ephemeris
     init_swe()
 
-    mars = get_planet_position("Mars", jd.jd)
+    mars = get_planet_position(Planet.MARS, jd.jd)
     print(f" Mars position on 2024-07-20:")
     print(f"   Longitude: {mars.longitude}")
     print(f"   Latitude: {mars.latitude}")

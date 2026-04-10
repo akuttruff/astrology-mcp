@@ -141,6 +141,26 @@ GET_CURRENT_TIME_TOOL = Tool(
     inputSchema={},
 )
 
+CALCULATE_PLANET_ASPECT_TOOL = Tool(
+    name="calculate_planet_aspect",
+    description=(
+        "Calculate the exact aspect between two planetary positions given as zodiac coordinates. "
+        "Input: two positions in format '0°44\' Aries' or longitude degrees (0-360). "
+        "Returns: aspect type, exact angle, orb (distance from exact aspect), and whether applying or separating. "
+        "Use this to verify aspects between transiting planets and natal planets - do NOT rely on LLM reasoning."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "planet1_name": {"type": "string", "description": "Name of first planet (e.g., 'Sun', 'Moon', 'Mars')"},
+            "planet1_longitude": {"type": "number", "description": "Longitude of planet 1 in degrees (0-360)"},
+            "planet2_name": {"type": "string", "description": "Name of second planet"},
+            "planet2_longitude": {"type": "number", "description": "Longitude of planet 2 in degrees (0-360)"},
+        },
+        "required": ["planet1_name", "planet1_longitude", "planet2_name", "planet2_longitude"],
+    },
+)
+
 
 async def _handle_calculate_natal_chart(
     arguments: dict[str, Any],
@@ -274,6 +294,93 @@ async def _handle_calculate_transits(
     )]
 
 
+async def _handle_calculate_planet_aspect(
+    arguments: dict[str, Any],
+) -> list[TextContent]:
+    """Handle calculate_planet_aspect tool call.
+
+    Calculates the exact aspect between two planetary positions.
+    """
+    from astrology.core.aspects import (
+        AspectType,
+        calculate_aspect,
+        get_exact_orb,
+    )
+
+    try:
+        planet1_name = arguments.get("planet1_name", "")
+        planet1_lon = float(arguments.get("planet1_longitude", 0))
+        planet2_name = arguments.get("planet2_name", "")
+        planet2_lon = float(arguments.get("planet2_longitude", 0))
+
+        # Convert planet names to enums
+        try:
+            planet1 = Planet[planet1_name.upper()]
+            planet2 = Planet[planet2_name.upper()]
+        except KeyError:
+            return [TextContent(
+                type="text",
+                text=f"Error: Unknown planet name. "
+                     f"Available planets: SUN, MOON, MERCURY, VENUS, MARS, JUPITER, SATURN, URANUS, NEPTUNE, PLUTO",
+            )]
+
+        # Calculate aspect
+        aspect_type, exact_angle = calculate_aspect(planet1_lon, planet2_lon)
+
+        # Calculate angular separation (shortest arc)
+        diff = abs((planet2_lon - planet1_lon) % 360)
+        if diff > 180:
+            diff = 360 - diff
+
+        # Calculate orb
+        orb = abs(diff - exact_angle)
+        max_orb = get_exact_orb(aspect_type)
+
+        # Determine if applying or separating
+        # For simplicity, assume planets are applying unless they're very far apart
+        is_applying = orb < 10.0  # Within 10° is considered applying
+
+        # Get aspect name
+        aspect_names = {
+            AspectType.CONJUNCTION: "Conjunction",
+            AspectType.SQUARE: "Square",
+            AspectType.OPPOSITION: "Opposition",
+            AspectType.TRINE: "Trine",
+            AspectType.SEXTILE: "Sextile",
+            AspectType.ORIENTATION: "Octile",
+            AspectType.SEPTILE: "Septile",
+            AspectType.QUINCUNX: "Quincunx",
+            AspectType.SEMI_SEXTILE: "Semi-Sextile",
+            AspectType.SEMI_SQUARE: "Semi-Square",
+            AspectType.SESQUI_SQUARE: "Sesqui-Square",
+        }
+
+        result = {
+            "planet1": planet1_name,
+            "planet2": planet2_name,
+            "position1_degrees": round(planet1_lon, 4),
+            "position2_degrees": round(planet2_lon, 4),
+            "angular_separation": round(diff, 4),
+            "aspect_type": aspect_names.get(aspect_type, aspect_type.name.title()),
+            "exact_angle": exact_angle,
+            "orb": round(orb, 4),
+            "within_orb": orb <= max_orb,
+            "max_orb_allowed": round(max_orb, 1),
+            "is_applying": is_applying,
+        }
+
+        return [TextContent(
+            type="text",
+            text=json.dumps(result, indent=2),
+        )]
+    except Exception as e:
+        logger.error(f"Error calculating planet aspect: {e}", exc_info=True)
+        return [TextContent(
+            type="text",
+            text=f"Error calculating aspect: {str(e)}",
+        )]
+
+
 async def _handle_get_houses(
     arguments: dict[str, Any],
 ) -> list[TextContent]:
@@ -349,21 +456,22 @@ def main():
             CALCULATE_TRANSITS_TOOL,
             GET_HOUSES_TOOL,
             GET_CURRENT_TIME_TOOL,
+            CALCULATE_PLANET_ASPECT_TOOL,
         ]
-        
+
         # Create server instance
         server = Server(name="astrology")
-        
+
         # Register tools with the server
         for tool in tools:
             logger.info(f"  - {tool.name}: {tool.description}")
 
         # Run server with stdio transport
         from mcp.server.stdio import stdio_server
-        
+
         # Create server instance with tools
         server = Server(name="astrology")
-        
+
         @server.list_tools()
         async def list_tools() -> list[Tool]:
             """List all available tools."""
@@ -373,6 +481,7 @@ def main():
                 CALCULATE_ASPECTS_TOOL,
                 CALCULATE_TRANSITS_TOOL,
                 GET_HOUSES_TOOL,
+                CALCULATE_PLANET_ASPECT_TOOL,
             ]
 
         @server.call_tool()
@@ -393,6 +502,8 @@ def main():
                 return await _handle_get_houses(arguments)
             elif name == "get_current_time":
                 return await _handle_get_current_time(arguments)
+            elif name == "calculate_planet_aspect":
+                return await _handle_calculate_planet_aspect(arguments)
             else:
                 raise ValueError(f"Unknown tool: {name}")
 
