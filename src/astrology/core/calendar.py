@@ -47,13 +47,12 @@ def gregorian_to_julian_day(year: int, month: int, day: float, hour: float = 12.
     """
     # Handle hour conversion to fractional day
     if isinstance(day, float):
+        # Day already includes fractional part from hour
         day_frac = day - int(day)
         day = int(day)
     else:
-        day_frac = 0.0
-
-    # Convert hour to fractional day
-    day_frac += hour / 24.0
+        # Convert hour to fractional day
+        day_frac = hour / 24.0
 
     # Algorithm from "Astronomical Algorithms" by Jean Meeus
     if month <= 2:

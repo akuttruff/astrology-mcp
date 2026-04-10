@@ -7,11 +7,14 @@ from enum import Enum, auto
 from typing import NamedTuple
 
 try:
-    import swisseph as swe
+    import pyswisseph as swe
 except ImportError:
-    raise ImportError(
-        "Swiss Ephemeris not found. Install with: pip install swisseph"
-    )
+    try:
+        import swisseph as swe  # fallback for older package name
+    except ImportError:
+        raise ImportError(
+            "Swiss Ephemeris not found. Install with: pip install pyswisseph"
+        )
 
 
 class Planet(Enum):
@@ -70,8 +73,8 @@ _PLANET_IDS = {
     Planet.CHIRON: swe.CHIRON,
     Planet.LUNAR_NODE_MEAN: swe.MEAN_NODE,
     Planet.LUNAR_NODE_TRUE: swe.TRUE_NODE,
-    Planet.LILITH_MEAN: swe.MEAN_APOGEE,
-    Planet.LILITH_TRUE: swe.OSCU_APOGEE,
+    Planet.LILITH_MEAN: swe.MEAN_APOG,
+    Planet.LILITH_TRUE: swe.OSCU_APOG,
 }
 
 
@@ -79,7 +82,7 @@ _PLANET_IDS = {
 ZODIAC_NAMES = [
     "Aries", "Taurus", "Gemini", "Cancer",
     "Leo", "Virgo", "Libra", "Scorpio",
-    "Pluto", "Sagittarius", "Capricorn", "Aquarius"
+    "Sagittarius", "Capricorn", "Aquarius", "Pisces"
 ]
 
 
@@ -339,10 +342,10 @@ def calculate_houses(
         houses[f"house_{house_num}"] = _convert_to_zonal(cusp)
 
     # Ascendant, MC, etc.
-    houses["ascendant"] = _convert_to_zonal(asmc[0])
-    houses["mc"] = _convert_to_zonal(asmc[1])
-    houses["descendant"] = _convert_to_zonal(asmc[2])
-    houses["ic"] = _convert_to_zonal(asmc[3])
+    houses["ascendant"] = _convert_to_zonal(ascmc[0])
+    houses["mc"] = _convert_to_zonal(ascmc[1])
+    houses["descendant"] = _convert_to_zonal(ascmc[2])
+    houses["ic"] = _convert_to_zonal(ascmc[3])
 
     return houses
 

@@ -69,38 +69,47 @@ def calculate_single_transit(
     transiting_pos = get_planet_position(planet, transiting_jd)
 
     events = []
-    natal_positions = {
-        planet: pos.longitude.longitude
-        for planet, pos in natal_chart.planets.items()
-    }
-
+    
+    # Build natal positions dict with full position objects
+    natal_positions: dict[Planet, PlanetPosition] = {}
+    
+    # Add planetary positions
+    for planet_obj, pos in natal_chart.planets.items():
+        natal_positions[planet_obj] = pos
+    
     # Add angles
     if natal_chart.ascendant:
-        natal_positions[Planet.ASCENDANT] = natal_chart.ascendant.longitude
+        natal_positions[Planet.ASCENDANT] = PlanetPosition(
+            planet=Planet.ASCENDANT,
+            longitude=natal_chart.ascendant.longitude,
+            latitude=0.0,
+            distance=1.0,
+            retrograde=False,
+            motion_speed=0.0,
+        )
     if natal_chart.midheaven:
-        natal_positions[Planet.MC] = natal_chart.midheaven.longitude
+        natal_positions[Planet.MC] = PlanetPosition(
+            planet=Planet.MC,
+            longitude=natal_chart.midheaven.longitude,
+            latitude=0.0,
+            distance=1.0,
+            retrograde=False,
+            motion_speed=0.0,
+        )
 
     # Check aspects to each natal planet/point
-    for natal_planet, natal_lon in natal_positions.items():
+    for natal_planet, natal_pos in natal_positions.items():
         aspect = calculate_planet_aspect(
             planet,
             natal_planet,
             transiting_pos,
-            PlanetPosition(
-                planet=natal_planet,
-                longitude=transiting_pos.longitude,  # Placeholder
-                latitude=0.0,
-                distance=1.0,
-                retrograde=False,
-                motion_speed=0.0,
-            ),
+            natal_pos,
         )
-        # We need to calculate aspect differently since we already have transiting position
         if aspect:
             event = TransitEvent(
                 planet=planet,
-                natal_position=natal_lon,
-                transit_position=transiting_pos.longitude.longitude,
+                natal_position=natal_pos.longitude,  # Already a float (0-360 degrees)
+                transit_position=transiting_pos.longitude,  # Already a float (0-360 degrees)
                 aspect_type=aspect.type,
                 orb=aspect.orb,
             )
@@ -197,7 +206,7 @@ def find_major_transit_dates(
 
         # Check aspects to natal planets
         natal_positions = {
-            planet: pos.longitude.longitude
+            planet: pos.longitude  # Already a float (0-360 degrees)
             for planet, pos in natal_chart.planets.items()
         }
 
