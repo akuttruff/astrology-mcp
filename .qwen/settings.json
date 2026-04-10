@@ -14,7 +14,10 @@
       "Bash(sys.path.insert)",
       "Bash(from *)",
       "Bash(print)",
-      "Bash(pyeof)"
+      "Bash(pyeof)",
+      "Bash(async *)",
+      "Bash(result *)",
+      "Bash(asyncio.run)"
     ]
   },
   "$version": 3

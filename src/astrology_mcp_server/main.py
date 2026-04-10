@@ -126,6 +126,15 @@ GET_HOUSES_TOOL = Tool(
     inputSchema=GetHousesParams.model_json_schema(),
 )
 
+GET_CURRENT_TIME_TOOL = Tool(
+    name="get_current_time",
+    description=(
+        "Get the current date and time in UTC. "
+        "Useful for calculating transits or current planetary positions."
+    ),
+    inputSchema={},
+)
+
 
 async def _handle_calculate_natal_chart(
     arguments: dict[str, Any],
@@ -210,6 +219,30 @@ async def _handle_get_planet_positions(
             type="text",
             text=f"Error getting planet positions: {str(e)}",
         )]
+
+
+async def _handle_get_current_time(
+    arguments: dict[str, Any],
+) -> list[TextContent]:
+    """Handle get_current_time tool call."""
+    from datetime import datetime, timezone
+    
+    now = datetime.now(timezone.utc)
+    
+    result = {
+        "utc_datetime": now.isoformat(),
+        "year": now.year,
+        "month": now.month,
+        "day": now.day,
+        "hour": now.hour,
+        "minute": now.minute,
+        "second": now.second,
+    }
+    
+    return [TextContent(
+        type="text",
+        text=json.dumps(result, indent=2),
+    )]
 
 
 async def _handle_calculate_aspects(
@@ -300,7 +333,7 @@ def main():
     async def run_server():
         """Run the MCP server asynchronously."""
         logger.info("Starting Astrology MCP Server...")
-        
+
         # Create tools list
         tools = [
             CALCULATE_NATAL_CHART_TOOL,
@@ -308,6 +341,7 @@ def main():
             CALCULATE_ASPECTS_TOOL,
             CALCULATE_TRANSITS_TOOL,
             GET_HOUSES_TOOL,
+            GET_CURRENT_TIME_TOOL,
         ]
         
         # Create server instance
@@ -350,6 +384,8 @@ def main():
                 return await _handle_calculate_transits(arguments)
             elif name == "get_houses":
                 return await _handle_get_houses(arguments)
+            elif name == "get_current_time":
+                return await _handle_get_current_time(arguments)
             else:
                 raise ValueError(f"Unknown tool: {name}")
 
