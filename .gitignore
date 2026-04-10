@@ -24,6 +24,12 @@ debug_*.py
 *.egg-info/
 *.egg
 
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
 # IDE and editor files
 .idea/
 .vscode/
