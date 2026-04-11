@@ -701,6 +701,7 @@ def _serialize_chart(chart: NatalChart) -> dict[str, Any]:
         },
         "planets": {},
         "houses": {},
+        "house_positions": {},  # Added: planet house placements
         "angles": {},
     }
 
@@ -714,6 +715,10 @@ def _serialize_chart(chart: NatalChart) -> dict[str, Any]:
             "distance": round(position.distance, 4),
             "retrograde": position.retrograde,
         }
+
+    # Add house positions for each planet
+    for planet, house_num in chart.house_positions.items():
+        result["house_positions"][planet.name] = house_num
 
     # Add houses
     for key, value in chart.houses.items():
