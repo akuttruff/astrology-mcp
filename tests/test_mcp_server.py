@@ -253,3 +253,51 @@ def test_calculate_transits_with_full_zonalposition_data():
     content = result[0]
     assert content.type == "text"
     assert "Error" not in content.text
+
+
+def test_house_positions_serialized_correctly():
+    """Verify house positions are included in chart serialization.
+
+    This test covers the bug where Pluto was incorrectly shown as House 8
+    instead of House 12 because house_positions wasn't being serialized.
+    """
+    import json
+    from datetime import datetime, timezone, timedelta
+    from astrology.charts.chart import calculate_natal_chart
+    from src.astrology_mcp_server.main import _serialize_chart
+
+    # Calculate chart for the user's birth data
+    birth_datetime = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
+    chart = calculate_natal_chart(
+        birth_datetime=birth_datetime,
+        latitude=34.0211,
+        longitude=-118.3965,
+    )
+
+    # Serialize the chart
+    serialized = _serialize_chart(chart)
+
+    # Verify house_positions is included in serialization
+    assert "house_positions" in serialized, "house_positions should be in serialized chart"
+
+    # Verify Pluto is in House 12 (Scorpio, with ASC in Sagittarius)
+    assert "PLUTO" in serialized["house_positions"], "PLUTO should have house position"
+    pluto_house = serialized["house_positions"]["PLUTO"]
+    assert pluto_house == 12, f"Pluto should be in House 12, got {pluto_house}"
+
+    # Verify the house calculation is correct for all planets
+    # ASC in Sagittarius (sign 8), so House 12 = Scorpio
+    assert serialized["house_positions"]["MARS"] == 12, "Mars should be in House 12 (Scorpio)"
+    assert serialized["house_positions"]["SATURN"] == 12, "Saturn should be in House 12 (Scorpio)"
+
+    # Sun in Taurus (sign 1), ASC in Sagittarius (sign 8)
+    # House = ((1 - 8) % 12) + 1 = (5 % 12) + 1 = 6
+    assert serialized["house_positions"]["SUN"] == 6, "Sun should be in House 6 (Taurus)"
+
+    # Mercury in Aries (sign 0)
+    # House = ((0 - 8) % 12) + 1 = (4 % 12) + 1 = 5
+    assert serialized["house_positions"]["MERCURY"] == 5, "Mercury should be in House 5 (Aries)"
+
+    # Verify JSON serialization works
+    json_str = json.dumps(serialized)
+    assert "house_positions" in json_str, "house_positions should be in JSON output"
