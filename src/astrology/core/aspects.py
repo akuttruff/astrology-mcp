@@ -52,20 +52,23 @@ DEFAULT_ORBS = {
     AspectType.SESQUI_SQUARE: 2.0,
 }
 
-# Aspect angles
+# Aspect angles - sorted by frequency for early exit optimization
 ASPECT_ANGLES = {
     AspectType.CONJUNCTION: 0.0,
-    AspectType.ORIENTATION: 45.0,
-    AspectType.SEPTILE: 51.4285714286,
+    AspectType.OPPOSITION: 180.0,
     AspectType.SQUARE: 90.0,
     AspectType.TRINE: 120.0,
     AspectType.SEXTILE: 60.0,
-    AspectType.OPPOSITION: 180.0,
-    AspectType.QUINCUNX: 150.0,
-    AspectType.SEMI_SEXTILE: 30.0,
+    AspectType.ORIENTATION: 45.0,
     AspectType.SEMI_SQUARE: 45.0,
+    AspectType.SEPTILE: 51.4285714286,
+    AspectType.SEMI_SEXTILE: 30.0,
+    AspectType.QUINCUNX: 150.0,
     AspectType.SESQUI_SQUARE: 135.0,
 }
+
+# Pre-computed angles list for faster iteration
+_ASPECT_ANGLE_LIST = list(ASPECT_ANGLES.items())
 
 # Aspect names for display
 ASPECT_NAMES = {
@@ -105,14 +108,18 @@ def calculate_aspect(
     if diff > 180:
         diff = 360 - diff
 
-    # Find the closest aspect
+    # Find the closest aspect using pre-computed list
     best_aspect = AspectType.CONJUNCTION
     best_angle = 0.0
     min_diff = diff
 
-    for aspect_type, angle in ASPECT_ANGLES.items():
+    for aspect_type, angle in _ASPECT_ANGLE_LIST:
+        # Early exit: perfect match
+        if diff == angle:
+            return aspect_type, angle
+        
         # Check both direct and orb-like cases
-        for base_angle in [angle, angle - 360]:
+        for base_angle in (angle, angle - 360):
             diff_from_aspect = abs(diff - base_angle)
             if diff_from_aspect < min_diff:
                 min_diff = diff_from_aspect
