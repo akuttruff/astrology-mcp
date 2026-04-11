@@ -8,7 +8,7 @@ from .aspects import (
     get_major_aspects,
     AspectType,
 )
-from .ephemeris import Planet, PlanetPosition, ZonalPosition
+from .ephemeris import Planet, PlanetPosition
 
 
 def test_aspect_calculation():
@@ -18,7 +18,7 @@ def test_aspect_calculation():
 
     sun_pos = PlanetPosition(
         planet=Planet.SUN,
-        longitude=ZonalPosition(longitude=10.0, sign_index=0, sign_name="Aries", degree_in_sign=10.0),
+        longitude=10.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=1.0,
         retrograde=False,
@@ -27,7 +27,7 @@ def test_aspect_calculation():
 
     moon_pos = PlanetPosition(
         planet=Planet.MOON,
-        longitude=ZonalPosition(longitude=190.0, sign_index=6, sign_name="Libra", degree_in_sign=10.0),
+        longitude=190.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=0.00257,
         retrograde=False,
@@ -53,7 +53,7 @@ def test_trine_calculation():
 
     jupiter_pos = PlanetPosition(
         planet=Planet.JUPITER,
-        longitude=ZonalPosition(longitude=10.0, sign_index=0, sign_name="Aries", degree_in_sign=10.0),
+        longitude=10.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=5.2,
         retrograde=False,
@@ -62,7 +62,7 @@ def test_trine_calculation():
 
     saturn_pos = PlanetPosition(
         planet=Planet.SATURN,
-        longitude=ZonalPosition(longitude=130.0, sign_index=4, sign_name="Leo", degree_in_sign=10.0),
+        longitude=130.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=9.5,
         retrograde=False,
@@ -86,7 +86,7 @@ def test_conjunction_calculation():
 
     planet1_pos = PlanetPosition(
         planet=Planet.MERCURY,
-        longitude=ZonalPosition(longitude=120.5, sign_index=4, sign_name="Leo", degree_in_sign=0.5),
+        longitude=120.5,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=1.0,
         retrograde=False,
@@ -95,7 +95,7 @@ def test_conjunction_calculation():
 
     planet2_pos = PlanetPosition(
         planet=Planet.VENUS,
-        longitude=ZonalPosition(longitude=120.6, sign_index=4, sign_name="Leo", degree_in_sign=0.6),
+        longitude=120.6,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=0.7,
         retrograde=False,
@@ -120,7 +120,7 @@ def test_sextile_calculation():
 
     mars_pos = PlanetPosition(
         planet=Planet.MARS,
-        longitude=ZonalPosition(longitude=75.0, sign_index=2, sign_name="Gemini", degree_in_sign=15.0),
+        longitude=75.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=1.5,
         retrograde=False,
@@ -129,7 +129,7 @@ def test_sextile_calculation():
 
     sun_pos = PlanetPosition(
         planet=Planet.SUN,
-        longitude=ZonalPosition(longitude=135.0, sign_index=4, sign_name="Leo", degree_in_sign=15.0),
+        longitude=135.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=1.0,
         retrograde=False,
@@ -154,7 +154,7 @@ def test_square_calculation():
 
     venus_pos = PlanetPosition(
         planet=Planet.VENUS,
-        longitude=ZonalPosition(longitude=165.0, sign_index=5, sign_name="Virgo", degree_in_sign=15.0),
+        longitude=165.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=0.7,
         retrograde=False,
@@ -163,7 +163,7 @@ def test_square_calculation():
 
     moon_pos = PlanetPosition(
         planet=Planet.MOON,
-        longitude=ZonalPosition(longitude=255.0, sign_index=8, sign_name="Sagittarius", degree_in_sign=15.0),
+        longitude=255.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=0.00257,
         retrograde=False,
@@ -186,7 +186,7 @@ def test_orb_calculation():
     # Two planets exactly 180° apart = opposition with 0° orb
     planet1_pos = PlanetPosition(
         planet=Planet.SUN,
-        longitude=ZonalPosition(longitude=0.0, sign_index=0, sign_name="Aries", degree_in_sign=0.0),
+        longitude=0.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=1.0,
         retrograde=False,
@@ -195,7 +195,7 @@ def test_orb_calculation():
 
     planet2_pos = PlanetPosition(
         planet=Planet.MOON,
-        longitude=ZonalPosition(longitude=180.0, sign_index=6, sign_name="Libra", degree_in_sign=0.0),
+        longitude=180.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=0.00257,
         retrograde=False,
@@ -218,7 +218,7 @@ def test_applying_separating_aspects():
 
     sun_pos = PlanetPosition(
         planet=Planet.SUN,
-        longitude=ZonalPosition(longitude=10.0, sign_index=0, sign_name="Aries", degree_in_sign=10.0),
+        longitude=10.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=1.0,
         retrograde=False,
@@ -227,7 +227,7 @@ def test_applying_separating_aspects():
 
     moon_pos = PlanetPosition(
         planet=Planet.MOON,
-        longitude=ZonalPosition(longitude=15.0, sign_index=0, sign_name="Aries", degree_in_sign=15.0),
+        longitude=15.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=0.00257,
         retrograde=False,
@@ -273,7 +273,7 @@ def test_aspect_with_orb_boundary():
     # Just inside orb (7.5° separation = within 8°)
     planet1_pos = PlanetPosition(
         planet=Planet.SUN,
-        longitude=ZonalPosition(longitude=0.0, sign_index=0, sign_name="Aries", degree_in_sign=0.0),
+        longitude=0.0,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=1.0,
         retrograde=False,
@@ -282,7 +282,7 @@ def test_aspect_with_orb_boundary():
 
     planet2_pos = PlanetPosition(
         planet=Planet.MERCURY,
-        longitude=ZonalPosition(longitude=7.5, sign_index=0, sign_name="Aries", degree_in_sign=7.5),
+        longitude=7.5,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=1.0,
         retrograde=False,
@@ -297,7 +297,7 @@ def test_aspect_with_orb_boundary():
     # Just outside orb (8.5° separation = outside 8°)
     planet3_pos = PlanetPosition(
         planet=Planet.MERCURY,
-        longitude=ZonalPosition(longitude=8.5, sign_index=0, sign_name="Aries", degree_in_sign=8.5),
+        longitude=8.5,  # Degrees in zodiac (0-360)
         latitude=0.0,
         distance=1.0,
         retrograde=False,

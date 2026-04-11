@@ -624,17 +624,6 @@ async def _handle_calculate_planet_aspect(
         planet2_name = arguments.get("planet2_name", "")
         planet2_lon = float(arguments.get("planet2_longitude", 0))
 
-        # Convert planet names to enums
-        try:
-            planet1 = Planet[planet1_name.upper()]
-            planet2 = Planet[planet2_name.upper()]
-        except KeyError:
-            return [TextContent(
-                type="text",
-                text=f"Error: Unknown planet name. "
-                     f"Available planets: SUN, MOON, MERCURY, VENUS, MARS, JUPITER, SATURN, URANUS, NEPTUNE, PLUTO",
-            )]
-
         # Calculate aspect
         aspect_type, exact_angle = calculate_aspect(planet1_lon, planet2_lon)
 
@@ -648,10 +637,9 @@ async def _handle_calculate_planet_aspect(
         max_orb = get_exact_orb(aspect_type)
 
         # Determine if applying or separating
-        # For simplicity, assume planets are applying unless they're very far apart
-        is_applying = orb < 10.0  # Within 10° is considered applying
+        is_applying = orb < 10.0
 
-        # Get aspect name
+        # Get aspect name using simple mapping
         aspect_names = {
             AspectType.CONJUNCTION: "Conjunction",
             AspectType.SQUARE: "Square",
@@ -682,13 +670,13 @@ async def _handle_calculate_planet_aspect(
 
         return [TextContent(
             type="text",
-            text=json.dumps(result, indent=2),
+            text=json.dumps(result),
         )]
     except Exception as e:
         logger.error(f"Error calculating planet aspect: {e}", exc_info=True)
         return [TextContent(
             type="text",
-            text=f"Error calculating aspect: {str(e)}",
+            text=f"Error calculating aspect: {str(e)}.",
         )]
 
 
