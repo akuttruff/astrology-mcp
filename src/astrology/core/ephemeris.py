@@ -32,6 +32,14 @@ class Planet(Enum):
     IC = auto()  # Immum Coeli
 
 
+class ZonalPosition(NamedTuple):
+    """Position in zodiac with sign and degree."""
+    longitude: float  # Total degrees (0-360)
+    sign_index: int   # 0-11 (Aries=0, Taurus=1, etc.)
+    sign_name: str
+    degree_in_sign: float  # Degrees within the sign (0-30)
+
+
 class PlanetPosition(NamedTuple):
     """Planetary position data."""
     planet: Planet
@@ -41,13 +49,10 @@ class PlanetPosition(NamedTuple):
     retrograde: bool  # True if retrograde
     motion_speed: float  # Degrees per day
 
-
-class ZonalPosition(NamedTuple):
-    """Position in zodiac with sign and degree."""
-    longitude: float  # Total degrees (0-360)
-    sign_index: int   # 0-11 (Aries=0, Taurus=1, etc.)
-    sign_name: str
-    degree_in_sign: float  # Degrees within the sign (0-30)
+    @property
+    def zonal(self) -> ZonalPosition:
+        """Convert to zonal representation on demand."""
+        return _convert_to_zonal(self.longitude)
 
 
 # Swiss Ephemeris planet IDs
@@ -185,7 +190,7 @@ def get_planet_position(planet: Planet, jd: float, zodiac_type: str = "tropical"
 
     return PlanetPosition(
         planet=planet,
-        longitude=_convert_to_zonal(longitude, zodiac_type),
+        longitude=longitude,  # Plain float (0-360)
         latitude=latitude,
         distance=distance,
         retrograde=_is_planet_retrograde(speed),
@@ -240,7 +245,7 @@ def get_lunar_nodes(jd: float, use_true_node: bool = True) -> dict[str, PlanetPo
 
     position = PlanetPosition(
         planet=node,
-        longitude=_convert_to_zonal(longitude),
+        longitude=longitude,  # Plain float (0-360)
         latitude=result[1],
         distance=result[2],
         retrograde=_is_planet_retrograde(speed),
@@ -254,7 +259,7 @@ def get_lunar_nodes(jd: float, use_true_node: bool = True) -> dict[str, PlanetPo
         "north": position,
         "south": PlanetPosition(
             planet=Planet.LUNAR_NODE_TRUE if not use_true_node else Planet.LUNAR_NODE_MEAN,
-            longitude=_convert_to_zonal(south_longitude),
+            longitude=south_longitude,  # Plain float (0-360)
             latitude=-position.latitude,
             distance=position.distance,
             retrograde=position.retrograde,
@@ -281,7 +286,7 @@ def get_lilith_position(jd: float, use_true: bool = True) -> PlanetPosition:
 
     return PlanetPosition(
         planet=lilith,
-        longitude=_convert_to_zonal(result[0]),
+        longitude=result[0],  # Plain float (0-360)
         latitude=result[1],
         distance=result[2],
         retrograde=_is_planet_retrograde(result[3]),

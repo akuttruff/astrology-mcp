@@ -107,17 +107,9 @@ def calculate_single_transit(
             natal_pos,
         )
         if aspect:
-            # Extract longitude value from ZonalPosition (if needed)
-            natal_lon = (
-                natal_pos.longitude
-                if isinstance(natal_pos.longitude, (int, float))
-                else natal_pos.longitude.longitude
-            )
-            transit_lon = (
-                transiting_pos.longitude
-                if isinstance(transiting_pos.longitude, (int, float))
-                else transiting_pos.longitude.longitude
-            )
+            # Extract longitude value - PlanetPosition.longitude is always a plain float
+            natal_lon = natal_pos.longitude
+            transit_lon = transiting_pos.longitude
 
             event = TransitEvent(
                 planet=planet,
@@ -227,13 +219,13 @@ def find_major_transit_dates(
         aspects = []
         for natal_planet, natal_lon in natal_positions.items():
             aspect = calculate_aspect(
-                transiting_planet_pos.longitude.longitude,
+                transiting_planet_pos.longitude,
                 natal_lon
             )
             aspect_type_found, exact_angle = aspect
 
             # Calculate orb
-            diff = abs((transiting_planet_pos.longitude.longitude - natal_lon) % 360)
+            diff = abs((transiting_planet_pos.longitude - natal_lon) % 360)
             if diff > 180:
                 diff = 360 - diff
 
@@ -245,7 +237,7 @@ def find_major_transit_dates(
                     aspects.append(TransitEvent(
                         planet=transit_planet,
                         natal_position=natal_lon,
-                        transit_position=transiting_planet_pos.longitude.longitude,
+                        transit_position=transiting_planet_pos.longitude,
                         aspect_type=aspect_type_found,
                         orb=orb,
                     ))
@@ -254,7 +246,7 @@ def find_major_transit_dates(
             results.append(TransitConfiguration(
                 date=check_date,
                 planet=transit_planet,
-                transiting_position=transiting_planet_pos.longitude.longitude,
+                transiting_position=transiting_planet_pos.longitude,
                 natal_positions=natal_positions,
                 aspects=aspects,
             ))

@@ -60,7 +60,7 @@ class NatalChart:
     def get_planet_sign(self, planet: Planet) -> str:
         """Get the zodiac sign for a given planet."""
         if planet in self.planets:
-            return self.planets[planet].longitude.sign_name
+            return self.planets[planet].zonal.sign_name
         if planet == Planet.ASCENDANT and self.ascendant:
             return self.ascendant.sign_name
         if planet == Planet.MC and self.midheaven:
@@ -70,7 +70,7 @@ class NatalChart:
     def get_planet_degree(self, planet: Planet) -> float:
         """Get the degree within sign for a given planet."""
         if planet in self.planets:
-            return self.planets[planet].longitude.degree_in_sign
+            return self.planets[planet].zonal.degree_in_sign
         if planet == Planet.ASCENDANT and self.ascendant:
             return self.ascendant.degree_in_sign
         if planet == Planet.MC and self.midheaven:
@@ -80,7 +80,7 @@ class NatalChart:
     def get_planet_longitude(self, planet: Planet) -> float:
         """Get the total longitude for a given planet."""
         if planet in self.planets:
-            return self.planets[planet].longitude.longitude
+            return self.planets[planet].longitude
         if planet == Planet.ASCENDANT and self.ascendant:
             return self.ascendant.longitude
         if planet == Planet.MC and self.midheaven:
@@ -149,7 +149,8 @@ def calculate_natal_chart(
     # Determine which house each planet is in
     house_positions = {}
     for planet, position in planets.items():
-        planet_lon = position.longitude.longitude
+        # PlanetPosition.longitude is now a plain float (0-360)
+        planet_lon = position.longitude
         planet_house = _find_planet_house(planet_lon, houses_data)
         house_positions[planet] = planet_house
 
@@ -213,7 +214,8 @@ def get_planet_in_sign(chart: NatalChart, sign_name: str) -> list[Planet]:
     """
     matching = []
     for planet, position in chart.planets.items():
-        if position.longitude.sign_name == sign_name:
+        # Use zonal property to access sign_name
+        if position.zonal.sign_name == sign_name:
             matching.append(planet)
     return matching
 
@@ -250,7 +252,8 @@ def get_planet_aspect_angles(chart: NatalChart) -> dict[Planet, float]:
     asc_lon = chart.ascendant.longitude
     angles = {}
     for planet, position in chart.planets.items():
-        planet_lon = position.longitude.longitude
+        # PlanetPosition.longitude is now a plain float (0-360)
+        planet_lon = position.longitude
         angle = (planet_lon - asc_lon) % 360
         angles[planet] = angle
     return angles
