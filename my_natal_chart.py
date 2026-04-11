@@ -34,8 +34,8 @@ def main():
 
     for planet, position in chart.planets.items():
         retro = "R" if position.retrograde else ""
-        print(f"{planet.name:10} {position.longitude.sign_name:12} "
-              f"{position.longitude.degree_in_sign:5.1f}° {retro}")
+        print(f"{planet.name:10} {position.zonal.sign_name:12} "
+              f"{position.zonal.degree_in_sign:5.1f}° {retro}")
 
     # Print angles
     print("\n" + "-" * 70)

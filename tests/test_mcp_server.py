@@ -119,12 +119,12 @@ def test_natal_chart_calculation_past_date():
 
     # Verify approximate expected values for natal Sun and Moon
     sun_pos = chart.planets[Planet.SUN]
-    assert 20 <= sun_pos.longitude.degree_in_sign <= 21
-    assert sun_pos.longitude.sign_name == "Taurus"
+    assert 20 <= sun_pos.zonal.degree_in_sign <= 21
+    assert sun_pos.zonal.sign_name == "Taurus"
 
     moon_pos = chart.planets[Planet.MOON]
-    assert 25 <= moon_pos.longitude.degree_in_sign <= 27
-    assert moon_pos.longitude.sign_name == "Virgo"
+    assert 25 <= moon_pos.zonal.degree_in_sign <= 27
+    assert moon_pos.zonal.sign_name == "Virgo"
 
 
 def test_transit_calculation_with_stale_date():

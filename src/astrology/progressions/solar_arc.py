@@ -57,7 +57,7 @@ def calculate_solar_arc(natal_chart: NatalChart, current_date: datetime) -> floa
     current_pos = get_planet_position(Planet.SUN, current_jd.jd)
 
     # Calculate arc (difference in longitude)
-    sun_arc = current_pos.longitude.longitude - birth_pos.longitude.longitude
+    sun_arc = current_pos.longitude - birth_pos.longitude
 
     # Normalize to 0-360
     sun_arc = sun_arc % 360
@@ -85,12 +85,12 @@ def calculate_solar_arc_progressed_chart(
     progressed_planets = {}
     for planet, position in natal_chart.planets.items():
         # Add solar arc to natal position
-        progressed_lon = (position.longitude.longitude + sun_arc) % 360
+        progressed_lon = (position.longitude + sun_arc) % 360
 
         # Create progressed position
         progressed_planets[planet] = ProgressedPosition(
             planet=planet,
-            natal_position=position.longitude.longitude,
+            natal_position=position.longitude,
             sun_arc=sun_arc,
             progressed_longitude=progressed_lon,
         )
@@ -158,12 +158,12 @@ def get_progression_aspect(
 
         # Calculate aspect between natal and progressed
         aspect_type, exact_angle = calculate_aspect(
-            natal_pos.longitude.longitude,
+            natal_pos.longitude,
             progressed_pos.progressed_longitude
         )
 
         # Calculate orb
-        diff = abs((progressed_pos.progressed_longitude - natal_pos.longitude.longitude) % 360)
+        diff = abs((progressed_pos.progressed_longitude - natal_pos.longitude) % 360)
         if diff > 180:
             diff = 360 - diff
 
@@ -175,7 +175,7 @@ def get_progression_aspect(
                 "planet": planet,
                 "aspect_type": aspect_type,
                 "orb": orb,
-                "natal_position": natal_pos.longitude.longitude,
+                "natal_position": natal_pos.longitude,
                 "progressed_position": progressed_pos.progressed_longitude,
             })
 

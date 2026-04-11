@@ -268,10 +268,11 @@ async def _handle_get_planet_positions(
                 planet_enum = Planet[planet_name.upper()]
                 pos = get_planet_position(planet_enum, jd.jd)
 
+                # PlanetPosition.longitude is now a plain float; use .zonal for sign info
                 positions[planet_name] = {
-                    "longitude": round(pos.longitude.longitude, 4),
-                    "sign": pos.longitude.sign_name,
-                    "degree_in_sign": round(pos.longitude.degree_in_sign, 2),
+                    "longitude": round(pos.longitude, 4),
+                    "sign": pos.zonal.sign_name,
+                    "degree_in_sign": round(pos.zonal.degree_in_sign, 2),
                     "latitude": pos.latitude,
                     "distance": round(pos.distance, 4),
                     "retrograde": pos.retrograde,
@@ -346,33 +347,26 @@ async def _handle_calculate_aspects(
                 type="text",
                 text="Error: No planet data found in chart. Use calculate_natal_chart first.",
             )]
-        
+
         from astrology.core.ephemeris import Planet, PlanetPosition
-        from astrology.core.aspects import get_major_aspects, ZonalPosition
-        
+        from astrology.core.aspects import get_major_aspects
+
         planets = {}
         for planet_name, pos_data in planets_data.items():
             try:
                 planet_enum = Planet[planet_name]
-                longitude_data = pos_data.get("longitude", {})
+                # Extract longitude - can be a dict with zonal data or plain float
+                longitude_data = pos_data.get("longitude", 0)
                 if isinstance(longitude_data, dict):
-                    zonal_pos = ZonalPosition(
-                        longitude=longitude_data.get("longitude", 0),
-                        sign=longitude_data.get("sign", ""),
-                        degree_in_sign=longitude_data.get("degree_in_sign", 0),
-                        sign_name=longitude_data.get("sign_name", ""),
-                    )
+                    # Has zonal info - extract the longitude value
+                    lon = longitude_data.get("longitude", 0)
                 else:
-                    zonal_pos = ZonalPosition(
-                        longitude=longitude_data,
-                        sign="",
-                        degree_in_sign=0,
-                        sign_name="",
-                    )
-                
+                    # Plain float (already a longitude value)
+                    lon = longitude_data
+
                 planets[planet_enum] = PlanetPosition(
                     planet=planet_enum,
-                    longitude=zonal_pos,
+                    longitude=lon,
                     latitude=pos_data.get("latitude", 0),
                     distance=pos_data.get("distance", 1.0),
                     retrograde=pos_data.get("retrograde", False),
@@ -380,7 +374,7 @@ async def _handle_calculate_aspects(
                 )
             except KeyError:
                 continue
-        
+
         # Calculate major aspects
         aspects = get_major_aspects(planets)
         
@@ -483,27 +477,16 @@ async def _handle_calculate_transits(
                 logger.warning(f"Unknown planet in natal chart: {planet_name}, skipping")
                 continue
 
-            # Extract longitude - handle both dict and float formats
+            # Extract longitude - can be a dict with zonal data or plain float
             longitude_data = pos_data.get("longitude", 0)
             if isinstance(longitude_data, dict):
-                zonal_pos = ZonalPosition(
-                    longitude=longitude_data.get("longitude", 0),
-                    sign_index=int(longitude_data.get("longitude", 0) // 30) % 12,
-                    sign_name=longitude_data.get("sign", ""),
-                    degree_in_sign=longitude_data.get("degree_in_sign", 0),
-                )
+                lon = longitude_data.get("longitude", 0)
             else:
-                # It's a float (just longitude in degrees)
-                zonal_pos = ZonalPosition(
-                    longitude=longitude_data,
-                    sign_index=int(longitude_data // 30) % 12,
-                    degree_in_sign=longitude_data % 30,
-                    sign_name="",
-                )
+                lon = longitude_data
 
             natal_planets[planet_enum] = PlanetPosition(
                 planet=planet_enum,
-                longitude=zonal_pos,
+                longitude=lon,
                 latitude=pos_data.get("latitude", 0.0),
                 distance=pos_data.get("distance", 1.0),
                 retrograde=pos_data.get("retrograde", False),
@@ -515,22 +498,12 @@ async def _handle_calculate_transits(
         if "ascendant" in angles and Planet.ASCENDANT not in natal_planets:
             asc_data = angles["ascendant"]
             if isinstance(asc_data, dict):
-                zonal_pos = ZonalPosition(
-                    longitude=asc_data.get("longitude", 0),
-                    sign_index=int(asc_data.get("longitude", 0) // 30) % 12,
-                    sign_name=asc_data.get("sign", ""),
-                    degree_in_sign=asc_data.get("degree_in_sign", 0),
-                )
+                lon = asc_data.get("longitude", 0)
             else:
-                zonal_pos = ZonalPosition(
-                    longitude=asc_data,
-                    sign_index=int(asc_data // 30) % 12,
-                    degree_in_sign=asc_data % 30,
-                    sign_name="",
-                )
+                lon = asc_data
             natal_planets[Planet.ASCENDANT] = PlanetPosition(
                 planet=Planet.ASCENDANT,
-                longitude=zonal_pos,
+                longitude=lon,
                 latitude=0.0,
                 distance=1.0,
                 retrograde=False,
@@ -540,22 +513,12 @@ async def _handle_calculate_transits(
         if "midheaven" in angles and Planet.MC not in natal_planets:
             mc_data = angles["midheaven"]
             if isinstance(mc_data, dict):
-                zonal_pos = ZonalPosition(
-                    longitude=mc_data.get("longitude", 0),
-                    sign_index=int(mc_data.get("longitude", 0) // 30) % 12,
-                    sign_name=mc_data.get("sign", ""),
-                    degree_in_sign=mc_data.get("degree_in_sign", 0),
-                )
+                lon = mc_data.get("longitude", 0)
             else:
-                zonal_pos = ZonalPosition(
-                    longitude=mc_data,
-                    sign_index=int(mc_data // 30) % 12,
-                    degree_in_sign=mc_data % 30,
-                    sign_name="",
-                )
+                lon = mc_data
             natal_planets[Planet.MC] = PlanetPosition(
                 planet=Planet.MC,
-                longitude=zonal_pos,
+                longitude=lon,
                 latitude=0.0,
                 distance=1.0,
                 retrograde=False,
@@ -756,9 +719,9 @@ def _serialize_chart(chart: NatalChart) -> dict[str, Any]:
     # Add planets
     for planet, position in chart.planets.items():
         result["planets"][planet.name] = {
-            "longitude": position.longitude.longitude,
-            "sign": position.longitude.sign_name,
-            "degree_in_sign": round(position.longitude.degree_in_sign, 2),
+            "longitude": position.longitude,  # Plain float (0-360)
+            "sign": position.zonal.sign_name,  # Use .zonal property
+            "degree_in_sign": round(position.zonal.degree_in_sign, 2),
             "latitude": position.latitude,
             "distance": round(position.distance, 4),
             "retrograde": position.retrograde,
