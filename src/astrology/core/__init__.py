@@ -21,6 +21,7 @@ from .ephemeris import (
     get_lilith_position,
     calculate_houses,
     calculate_ayanamsa,
+    ZODIAC_NAMES,
 )
 from .aspects import (
     AspectType,

@@ -24,7 +24,7 @@ from astrology.charts.chart import (
     calculate_natal_chart,
     NatalChart,
 )
-from astrology.core.ephemeris import get_all_planets, get_planet_position, init_swe, Planet
+from astrology.core.ephemeris import get_all_planets, get_planet_position, init_swe, Planet, ZODIAC_NAMES, ZonalPosition
 from astrology.core.aspects import get_major_aspects
 from astrology.transits.transit import (
     calculate_single_transit,
@@ -143,7 +143,7 @@ GET_HOUSES_TOOL = Tool(
     name="get_houses",
     description=(
         "Get house cusp positions and planet placements in houses. "
-        "Uses Whole Sign house system by default. "
+        "Uses Whole Sign house system by default where each house is exactly one sign. "
         "For complete chart data including transits, use calculate_natal_chart followed by calculate_transits."
     ),
     inputSchema=GetHousesParams.model_json_schema(),
@@ -168,7 +168,8 @@ CALCULATE_TRANSITS_TOOL = Tool(
         "Calculate current transits comparing planetary positions to a natal chart. "
         "IMPORTANT: Always call get_current_time FIRST to verify the current date before using this tool. "
         "Pass the natal chart data (from calculate_natal_chart) and current datetime to get transiting planets "
-        "and their aspects to natal positions. Returns transit events sorted by orb (tightest first)."
+        "and their aspects to natal positions. Uses the same Whole Sign house system as the natal chart. "
+        "Returns transit events sorted by orb (tightest first)."
     ),
     inputSchema=CalculateTransitsParams.model_json_schema(),
 )
@@ -176,8 +177,8 @@ CALCULATE_TRANSITS_TOOL = Tool(
 CALCULATE_PLANET_ASPECT_TOOL = Tool(
     name="calculate_planet_aspect",
     description=(
-        "Calculate the exact aspect between two planetary positions given as zodiac coordinates. "
-        "Input: two positions in format '0°44\' Aries' or longitude degrees (0-360). "
+        "Calculate the exact aspect between two planetary positions. "
+        "Input: two positions as either longitude degrees (0-360) or zodiac coordinates (e.g., '20° Taurus'). "
         "Returns: aspect type, exact angle, orb (distance from exact aspect), and whether applying or separating. "
         "Use this to verify aspects between transiting planets and natal planets - do NOT rely on LLM reasoning."
     ),
@@ -417,7 +418,7 @@ async def _handle_calculate_transits(
     """Handle calculate_transits tool call."""
     from astrology.charts.chart import NatalChart
     from astrology.transits.transit import get_current_transits
-    from astrology.core.ephemeris import Planet, PlanetPosition, ZonalPosition
+    from astrology.core.ephemeris import PlanetPosition, ZonalPosition
 
     try:
         # Parse natal chart from arguments
@@ -525,6 +526,36 @@ async def _handle_calculate_transits(
                 motion_speed=0.0,
             )
 
+        # Reconstruct house cusps from serialized data
+        houses_data = natal_data.get("houses", {})
+
+        # Reconstruct ascendant and MC from serialized data
+        ascendant = None
+        midheaven = None
+        angles = natal_data.get("angles", {})
+
+        if "ascendant" in angles:
+            ascendant = _deserialize_zonal(angles["ascendant"])
+
+        if "midheaven" in angles:
+            midheaven = _deserialize_zonal(angles["midheaven"])
+        
+        # Create minimal NatalChart for transit calculation
+        natal_chart = NatalChart(
+            birth_datetime=birth_dt,
+            location=None,  # Will be set below
+            chart_time=None,
+            planets=natal_planets,
+            houses=houses_data,
+            house_positions={},
+            ascendant=ascendant,
+            descendant=None,
+            midheaven=midheaven,
+            ic=None,
+            lunar_north_node=None,
+            lunar_south_node=None,
+            Lilith=None,
+        )
         # Get transit datetime - use current time if not provided
         current_dt_str = arguments.get("current_datetime")
         if current_dt_str is None:
@@ -541,34 +572,20 @@ async def _handle_calculate_transits(
             from datetime import timezone
             current_dt = datetime.now(timezone.utc)
 
-        # Warn if the provided date is stale (more than 7 days from now)
-        from datetime import timezone, timedelta
+        # Calculate time difference from now (positive = future, negative = past)
+        from datetime import timezone
         now = datetime.now(timezone.utc)
-        date_diff = abs((current_dt - now).total_seconds())
+        date_diff_days = (current_dt - now).total_seconds() / 86400
 
+        # Always include current date for context so the LLM knows what time it is now
         warning_lines = []
-        if date_diff > 7 * 24 * 3600:  # 7 days in seconds
-            date_diff_days = round(date_diff / 86400)
-            logger.warning(f"Transit calculation using stale date {current_dt} ({date_diff_days} days old)")
-            warning_lines.append(f"WARNING: Using date {current_dt.strftime('%Y-%m-%d')} which is {date_diff_days} days old. "
-                               "Call get_current_time to get the current date.")
-
-        # Create minimal NatalChart for transit calculation
-        natal_chart = NatalChart(
-            birth_datetime=birth_dt,
-            location=None,  # Will be set below
-            chart_time=None,
-            planets=natal_planets,
-            houses={},
-            house_positions={},
-            ascendant=None,
-            descendant=None,
-            midheaven=None,
-            ic=None,
-            lunar_north_node=None,
-            lunar_south_node=None,
-            Lilith=None,
-        )
+        if abs(date_diff_days) > 0.5:  # More than 12 hours off from now
+            if date_diff_days > 0:
+                warning_lines.append(f"Current date/time: {now.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                warning_lines.append(f"Calculating transits for: {current_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                warning_lines.append(f"Current date/time: {now.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                warning_lines.append(f"Calculating transits for: {current_dt.strftime('%Y-%m-%d %H:%M:%S')}")
 
         # Get current transits
         report = get_current_transits(natal_chart, current_dt)
@@ -579,17 +596,26 @@ async def _handle_calculate_transits(
 
         if warning_lines:
             lines.extend(warning_lines)
-            lines.append("")
+            lines.append("-" * 50)
 
-        for transit in report.transits[:15]:  # Top 15 most significant
+        # Build house info for transiting planets
+        transit_house_info = {}
+        for planet in report.transiting_planets.keys():
+            house_num = report.get_transit_house(planet)
+            if house_num:
+                transit_house_info[planet] = house_num
+
+        for transit in report.transits[:20]:  # Top 20 most significant
             aspect_name = transit.aspect_type.name.title()
+            transit_house = transit_house_info.get(transit.planet, "N/A")
+            natal_planet_name = transit.natal_planet.name
             lines.append(
-                f"{transit.planet.name} transiting {aspect_name} "
-                f"natal position (orb: {transit.orb:.2f}°)"
+                f"{transit.planet.name} (House {transit_house}) transiting "
+                f"{aspect_name} natal {natal_planet_name} (orb: {transit.orb:.2f}°)"
             )
 
-        if len(report.transits) > 15:
-            lines.append(f"... and {len(report.transits) - 15} more transits")
+        if len(report.transits) > 20:
+            lines.append(f"... and {len(report.transits) - 20} more transits")
 
         return [TextContent(
             type="text",
@@ -722,26 +748,57 @@ def _serialize_chart(chart: NatalChart) -> dict[str, Any]:
 
     # Add houses
     for key, value in chart.houses.items():
-        if hasattr(value, "sign_name"):
-            result["houses"][key] = {
-                "longitude": value.longitude,
-                "sign": value.sign_name,
-                "degree_in_sign": round(value.degree_in_sign, 2),
-            }
+        result["houses"][key] = _serialize_zonal(value)
 
     # Add angles
     if chart.ascendant:
-        result["angles"]["ascendant"] = {
-            "longitude": chart.ascendant.longitude,
-            "sign": chart.ascendant.sign_name,
-        }
+        result["angles"]["ascendant"] = _serialize_zonal(chart.ascendant)
     if chart.midheaven:
-        result["angles"]["midheaven"] = {
-            "longitude": chart.midheaven.longitude,
-            "sign": chart.midheaven.sign_name,
-        }
+        result["angles"]["midheaven"] = _serialize_zonal(chart.midheaven)
 
     return result
+
+
+def _serialize_zonal(zonal: ZonalPosition | None) -> dict | None:
+    """Serialize a ZonalPosition to a dictionary."""
+    if zonal is None:
+        return None
+    return {
+        "longitude": zonal.longitude,
+        "sign": zonal.sign_name,
+        "degree_in_sign": round(zonal.degree_in_sign, 2),
+    }
+
+
+def _deserialize_zonal(data: dict | float) -> ZonalPosition | None:
+    """Deserialize zonal position data (handles both dict and plain float formats).
+    
+    Args:
+        data: Either a dict with longitude/sign info, or a plain float (longitude)
+        
+    Returns:
+        ZonalPosition if data is valid, None otherwise
+    """
+    if data is None:
+        return None
+    
+    # Handle plain float (longitude only)
+    if isinstance(data, (int, float)):
+        return ZonalPosition(
+            longitude=float(data),
+            sign_index=int(data // 30) % 12,
+            sign_name=ZODIAC_NAMES[int(data // 30) % 12],
+            degree_in_sign=float(data) % 30
+        )
+    
+    # Handle dict format with longitude field
+    lon = data.get("longitude", 0)
+    return ZonalPosition(
+        longitude=float(lon),
+        sign_index=int(lon // 30) % 12,
+        sign_name=ZODIAC_NAMES[int(lon // 30) % 12],
+        degree_in_sign=float(lon) % 30
+    )
 
 
 def main():

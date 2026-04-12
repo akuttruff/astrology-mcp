@@ -338,11 +338,34 @@ def calculate_houses(
         house_num = i + 1
         houses[f"house_{house_num}"] = _convert_to_zonal(cusp)
 
-    # Ascendant, MC, etc.
-    houses["ascendant"] = _convert_to_zonal(ascmc[0])
-    houses["mc"] = _convert_to_zonal(ascmc[1])
-    houses["descendant"] = _convert_to_zonal(ascmc[2])
-    houses["ic"] = _convert_to_zonal(ascmc[3])
+    # Ascendant, MC
+    # For Whole Sign houses, ASC is at the beginning of House 1 cusp (cusps[0])
+    # and MC is exactly 90° from ASC. Swiss Ephemeris's ascmc values are for
+    # Placidus system even when "W" is specified, so we need to calculate them.
+    if house_system == "W":
+        ascendant = _convert_to_zonal(cusps[0])  # House 1 cusp is at 0° of ASC sign
+        midheaven = _convert_to_zonal((cusps[0] + 90) % 360)  # MC is 90° from ASC
+        # Descendant and IC are handled below with 180° offset
+    else:
+        ascendant = _convert_to_zonal(ascmc[0])
+        midheaven = _convert_to_zonal(ascmc[1])
+
+    # For Whole Sign houses, Descendant and IC should be exactly 180° from ASC and MC
+    if house_system == "W":
+        # Descendant is 180° from Ascendant
+        descendant_lon = (ascendant.longitude + 180) % 360
+        houses["descendant"] = _convert_to_zonal(descendant_lon)
+        # IC is 180° from Midheaven
+        ic_lon = (midheaven.longitude + 180) % 360
+        houses["ic"] = _convert_to_zonal(ic_lon)
+    else:
+        # For other house systems, use the values from swe.houses
+        houses["descendant"] = _convert_to_zonal(ascmc[2])
+        houses["ic"] = _convert_to_zonal(ascmc[3])
+
+    # Store ascendant and MC directly
+    houses["ascendant"] = ascendant
+    houses["mc"] = midheaven
 
     return houses
 

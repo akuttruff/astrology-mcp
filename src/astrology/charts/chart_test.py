@@ -52,7 +52,8 @@ class TestHousePlacement:
             asc_sign = chart.ascendant.sign_name
             # Find a planet in the same sign as Ascendant
             for planet, position in chart.planets.items():
-                if position.longitude.sign_name == asc_sign:
+                # Use .zonal property to access sign_name (longitude is now a plain float)
+                if position.zonal.sign_name == asc_sign:
                     assert chart.get_planet_house(planet) == 1, f"{planet.name} should be in House 1"
                     break
 

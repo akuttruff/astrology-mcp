@@ -20,7 +20,8 @@
       "Bash(asyncio.run)",
       "Bash(.venv/bin/pip *)",
       "Bash(./.venv/bin/python *)",
-      "WebFetch(modelcontextprotocol.io)"
+      "WebFetch(modelcontextprotocol.io)",
+      "Bash(xargs *)"
     ]
   },
   "$version": 3

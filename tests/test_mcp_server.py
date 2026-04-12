@@ -127,9 +127,9 @@ def test_natal_chart_calculation_past_date():
     assert moon_pos.zonal.sign_name == "Virgo"
 
 
-def test_transit_calculation_with_stale_date():
-    """Verify transit calculation warns when using stale dates."""
-    from datetime import datetime
+def test_transit_calculation_with_future_date():
+    """Verify transit calculation works for future dates."""
+    from datetime import datetime, timedelta
     from astrology.charts.chart import calculate_natal_chart
     from astrology.transits.transit import get_current_transits
 
@@ -140,16 +140,16 @@ def test_transit_calculation_with_stale_date():
         elevation=0.0,
     )
 
-    # Test with a stale date (April 2025 - more than 7 days from now)
-    stale_date = datetime.fromisoformat("2025-04-10T00:00:00+00:00")
-    report = get_current_transits(chart, stale_date)
+    # Test with a future date (14 days from now to ensure it's > 7 days)
+    future_date = datetime.now() + timedelta(days=14)
+    report = get_current_transits(chart, future_date)
 
-    # Verify transit data is returned even with stale date
+    # Verify transit data is returned for the future date
     assert report.transits is not None
     assert len(report.transits) > 0
 
-    # Verify the report uses the stale date (not current)
-    assert report.date.year == 2025
+    # Verify the report uses the future date
+    assert report.date.year == future_date.year
 
 
 def test_calculate_transits_with_minimal_planet_data():

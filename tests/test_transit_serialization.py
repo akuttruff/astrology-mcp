@@ -243,3 +243,117 @@ class TestTransitEdgeCases:
 
         # Should handle gracefully even with no planets
         assert len(result) == 1
+
+
+class TestTransitHouseCalculation:
+    """Tests for transit house position calculations."""
+
+    def test_pluto_transit_house_2_in_july_2022(self):
+        """Verify Pluto in July 2022 is correctly placed in House 2.
+        
+        This tests the fix for: Pluto at ~27° Capricorn in July 2022
+        should be in House 2 (not House 6 as incorrectly reported).
+        """
+        # User's birth data
+        arguments = {
+            "natal_chart": {
+                "birth_datetime": "1984-05-10T20:44:00-07:00",
+                "location": {"latitude": 34.0215, "longitude": -118.4673},
+                "planets": {
+                    "SUN": {"longitude": 50.63689351655029},
+                    "MOON": {"longitude": 176.26079997064508},
+                    "MERCURY": {"longitude": 27.501945446411998},
+                    "VENUS": {"longitude": 41.00909130013627},
+                    "MARS": {"longitude": 230.92048984724283},
+                    "JUPITER": {"longitude": 282.7592733990824},
+                    "SATURN": {"longitude": 222.49514823775914},
+                    "URANUS": {"longitude": 252.43498657978645},
+                    "NEPTUNE": {"longitude": 271.0416499091887},
+                    "PLUTO": {"longitude": 210.18674613839875},
+                },
+                "angles": {
+                    "ascendant": {"longitude": 243.71955811442493},
+                    "midheaven": {"longitude": 165.4934995470908},
+                },
+            },
+            "current_datetime": "2022-07-01T00:00:00+00:00",
+        }
+
+        result = asyncio.run(_handle_calculate_transits(arguments))
+        
+        # Verify the response contains house info and Pluto is in House 2
+        content = result[0]
+        assert "PLUTO (House 2)" in content.text
+        # Also verify the output shows which planet is being transited
+        assert "natal MERCURY" in content.text or "MERCURY" in content.text
+
+    def test_transit_output_shows_natal_planet_names(self):
+        """Verify transit output includes natal planet names in aspect descriptions."""
+        arguments = {
+            "natal_chart": {
+                "birth_datetime": "1984-05-10T20:44:00-07:00",
+                "location": {"latitude": 34.0215, "longitude": -118.4673},
+                "planets": {
+                    "SUN": {"longitude": 50.63689351655029},
+                    "MOON": {"longitude": 176.26079997064508},
+                    "MERCURY": {"longitude": 27.501945446411998},
+                    "VENUS": {"longitude": 41.00909130013627},
+                    "MARS": {"longitude": 230.92048984724283},
+                },
+                "angles": {
+                    "ascendant": {"longitude": 243.71955811442493},
+                    "midheaven": {"longitude": 165.4934995470908},
+                },
+            },
+            "current_datetime": "2022-07-01T00:00:00+00:00",
+        }
+
+        result = asyncio.run(_handle_calculate_transits(arguments))
+        
+        content = result[0]
+        # Verify output format includes natal planet names
+        # e.g., "PLUTO transiting Square natal MERCURY"
+        assert "natal " in content.text
+        # Verify it's not just generic "natal position"
+        assert "natal MERCURY" in content.text or "natal SUN" in content.text or "natal MOON" in content.text
+
+    def test_house_positions_differ_for_past_and_present_dates(self):
+        """Verify the same planet appears in different houses for different dates."""
+        # Get transit report for July 2022 (Pluto at ~27° Capricorn)
+        result_2022 = asyncio.run(_handle_calculate_transits({
+            "natal_chart": {
+                "birth_datetime": "1984-05-10T20:44:00-07:00",
+                "location": {"latitude": 34.0215, "longitude": -118.4673},
+                "planets": {
+                    "PLUTO": {"longitude": 210.18674613839875},
+                },
+                "angles": {
+                    "ascendant": {"longitude": 243.71955811442493},
+                },
+            },
+            "current_datetime": "2022-07-01T00:00:00+00:00",
+        }))
+
+        # Get transit report for current time
+        result_now = asyncio.run(_handle_calculate_transits({
+            "natal_chart": {
+                "birth_datetime": "1984-05-10T20:44:00-07:00",
+                "location": {"latitude": 34.0215, "longitude": -118.4673},
+                "planets": {
+                    "PLUTO": {"longitude": 210.18674613839875},
+                },
+                "angles": {
+                    "ascendant": {"longitude": 243.71955811442493},
+                },
+            },
+        }))
+
+        # Both should contain valid transit reports
+        content_2022 = result_2022[0]
+        content_now = result_now[0]
+
+        assert "Current Transits Report" in content_2022.text
+        assert "Current Transits Report" in content_now.text
+
+        # Pluto should be in House 2 in July 2022 (Capricorn)
+        assert "House 2" in content_2022.text

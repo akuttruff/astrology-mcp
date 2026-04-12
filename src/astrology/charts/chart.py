@@ -257,3 +257,30 @@ def get_planet_aspect_angles(chart: NatalChart) -> dict[Planet, float]:
         angle = (planet_lon - asc_lon) % 360
         angles[planet] = angle
     return angles
+
+
+def get_planet_transit_house(
+    chart: NatalChart,
+    transit_longitude: float,
+) -> int:
+    """Calculate which house a transiting planet falls in.
+
+    Args:
+        chart: NatalChart with house cusps
+        transit_longitude: Transiting planet's longitude (0-360)
+
+    Returns:
+        House number (1-12)
+    """
+    if not chart.ascendant:
+        return 1
+
+    # For Whole Sign houses, House 1 starts at 0° of the Ascendant's sign
+    # Calculate which house a planet is in based on its longitude relative to ASC sign
+    asc_sign_index = int(chart.ascendant.longitude // 30)
+    planet_sign_index = int(transit_longitude // 30)
+
+    # Calculate house number based on sign offset from ASC's sign
+    house_number = ((planet_sign_index - asc_sign_index) % 12) + 1
+
+    return house_number

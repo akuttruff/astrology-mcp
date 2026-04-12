@@ -25,7 +25,8 @@ from ..charts.chart import NatalChart
 
 class TransitEvent(NamedTuple):
     """A transit event between a transiting planet and natal planet/point."""
-    planet: Planet
+    planet: Planet  # Transiting planet
+    natal_planet: Planet  # Natal planet being transited
     natal_position: float  # Natal longitude in degrees
     transit_position: float  # Transiting longitude in degrees
     aspect_type: AspectType
@@ -48,6 +49,23 @@ class TransitReport:
     transiting_planets: dict[Planet, PlanetPosition]
     natal_chart: NatalChart
     transits: list[TransitEvent]
+
+    def get_transit_house(self, planet: Planet) -> int | None:
+        """Get the house number for a transiting planet.
+
+        Args:
+            planet: The transiting planet
+
+        Returns:
+            House number (1-12) or None if planet not found
+        """
+        from ..charts.chart import get_planet_transit_house
+
+        if planet not in self.transiting_planets:
+            return None
+
+        transit_pos = self.transiting_planets[planet]
+        return get_planet_transit_house(self.natal_chart, transit_pos.longitude)
 
 
 def calculate_single_transit(
@@ -113,6 +131,7 @@ def calculate_single_transit(
 
             event = TransitEvent(
                 planet=planet,
+                natal_planet=natal_planet,
                 natal_position=natal_lon,  # Longitude in degrees (0-360)
                 transit_position=transit_lon,  # Longitude in degrees (0-360)
                 aspect_type=aspect.type,
