@@ -6,10 +6,14 @@ for use with local LLMs via tool calling interface.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import time
+import uuid
 from datetime import datetime
 from typing import Any
+from threading import Lock
 
 try:
     from mcp.server.lowlevel import Server
@@ -31,6 +35,63 @@ from astrology.transits.transit import (
     get_current_transits,
 )
 from astrology.core.calendar import gregorian_to_julian_day
+
+# Result cache configuration
+RESULT_CACHE_TTL_SECONDS = 3600  # 1 hour
+
+# In-memory cache for tool results
+# Format: { result_id: { "data": ..., "created_at": timestamp, "preview": ... } }
+_result_cache: dict[str, dict[str, Any]] = {}
+_result_cache_lock = Lock()
+
+
+def _generate_result_id(payload: dict[str, Any], prefix: str) -> str:
+    """Generate a deterministic result ID based on payload hash."""
+    # Create a hash from the payload to get consistent IDs for same inputs
+    payload_str = json.dumps(payload, sort_keys=True, default=str)
+    hash_digest = hashlib.sha256(payload_str.encode()).hexdigest()[:8]
+    return f"{prefix}_{hash_digest}"
+
+
+def _cache_result(result_id: str, data: dict[str, Any], preview: dict[str, Any]) -> None:
+    """Cache a result with its preview."""
+    with _result_cache_lock:
+        _result_cache[result_id] = {
+            "data": data,
+            "preview": preview,
+            "created_at": time.time(),
+        }
+
+
+def _get_cached_result(result_id: str) -> dict[str, Any] | None:
+    """Get a cached result by ID, returning None if expired or not found."""
+    with _result_cache_lock:
+        entry = _result_cache.get(result_id)
+        if entry is None:
+            return None
+        
+        # Check TTL
+        if time.time() - entry["created_at"] > RESULT_CACHE_TTL_SECONDS:
+            del _result_cache[result_id]
+            return None
+        
+        return entry
+
+
+def _cleanup_expired_results() -> int:
+    """Remove expired results from cache. Returns count of removed items."""
+    current_time = time.time()
+    removed = 0
+    with _result_cache_lock:
+        expired_ids = [
+            rid for rid, entry in _result_cache.items()
+            if current_time - entry["created_at"] > RESULT_CACHE_TTL_SECONDS
+        ]
+        for rid in expired_ids:
+            del _result_cache[rid]
+            removed += 1
+    return removed
+
 
 # Configure logging - write to file instead of stderr to avoid interfering with MCP protocol
 logging.basicConfig(
@@ -82,8 +143,14 @@ class CalculateAspectsParams(BaseModel):
 
 
 class CalculateTransitsParams(BaseModel):
-    """Parameters for calculating transits."""
-    natal_chart: dict[str, Any]
+    """Parameters for calculating transits.
+    
+    Accept either natal_chart (full data) OR natal_chart_id (cached result).
+    Using natal_chart_id is recommended as it keeps context lean.
+    """
+    # One of these must be provided:
+    natal_chart: dict[str, Any] | None = None  # Full chart data (legacy)
+    natal_chart_id: str | None = None  # Result ID from calculate_natal_chart
     current_datetime: str | None = None
 
 
@@ -112,11 +179,29 @@ CALCULATE_NATAL_CHART_TOOL = Tool(
     name="calculate_natal_chart",
     description=(
         "Calculate a complete natal chart including planetary positions, "
-        "houses, and angles. Returns comprehensive chart data. "
+        "houses, and angles. Returns result_id and preview - use get_result() to retrieve full data. "
         "IMPORTANT: Provide birth datetime with timezone (e.g., '1984-05-10T20:44:00-07:00' for PDT). "
-        "Without timezone, the time is assumed to be in local time."
+        "Without timezone, the time is assumed to be in local time. "
+        "Returns: {result_id, preview, message}"
     ),
     inputSchema=CalculateNatalChartParams.model_json_schema(),
+)
+
+GET_RESULT_TOOL = Tool(
+    name="get_result",
+    description=(
+        "Retrieve cached tool result data by result_id. "
+        "Use this to fetch full chart data when you need to inspect, reason about, or conditionally branch on the data. "
+        "The preview returned by calculate_natal_chart contains key highlights (sun/moon/rising signs) for quick decisions. "
+        "Only call get_result when you need the complete chart data."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "result_id": {"type": "string", "description": "The result_id returned by calculate_natal_chart or other compute tools"},
+        },
+        "required": ["result_id"],
+    },
 )
 
 GET_PLANET_POSITIONS_TOOL = Tool(
@@ -167,8 +252,9 @@ CALCULATE_TRANSITS_TOOL = Tool(
     description=(
         "Calculate current transits comparing planetary positions to a natal chart. "
         "IMPORTANT: Always call get_current_time FIRST to verify the current date before using this tool. "
-        "Pass the natal chart data (from calculate_natal_chart) and current datetime to get transiting planets "
-        "and their aspects to natal positions. Uses the same Whole Sign house system as the natal chart. "
+        "You can pass either: (1) natal_chart_id from calculate_natal_chart for lean context, or "
+        "(2) natal_chart with full chart data (legacy). "
+        "When using natal_chart_id, the full chart is fetched from cache before calculating transits. "
         "Returns transit events sorted by orb (tightest first)."
     ),
     inputSchema=CalculateTransitsParams.model_json_schema(),
@@ -198,14 +284,20 @@ CALCULATE_PLANET_ASPECT_TOOL = Tool(
 async def _handle_calculate_natal_chart(
     arguments: dict[str, Any],
 ) -> list[TextContent]:
-    """Handle calculate_natal_chart tool call."""
+    """Handle calculate_natal_chart tool call.
+    
+    Returns a response with result_id and preview. The full chart data is cached
+    and can be retrieved later using get_result(result_id).
+    
+    Preview contains key highlights (sun/moon/rising signs) for quick decisions.
+    """
     try:
         params = CalculateNatalChartParams(**arguments)
-        
+
         # Parse datetime - LM Studio may pass ISO string without timezone
         birth_dt_str = params.birth_datetime
         birth_datetime = datetime.fromisoformat(birth_dt_str)
-        
+
         # If no timezone, assume the user provided local time and warn
         if birth_datetime.tzinfo is None:
             logger.warning(
@@ -222,11 +314,26 @@ async def _handle_calculate_natal_chart(
         )
 
         # Convert chart to serializable format
-        result = _serialize_chart(chart)
+        full_result = _serialize_chart(chart)
+        
+        # Generate result ID and create preview
+        result_id = _generate_result_id({"birth_datetime": birth_dt_str, "location": (params.latitude, params.longitude)}, "nc")
+        
+        # Build preview with key highlights only
+        preview = _build_chart_preview(chart)
+
+        # Cache the full result
+        _cache_result(result_id, full_result, preview)
+
+        logger.info(f"Cached natal chart result: {result_id}")
 
         return [TextContent(
             type="text",
-            text=json.dumps(result, indent=2, default=str),
+            text=json.dumps({
+                "result_id": result_id,
+                "preview": preview,
+                "message": f"Chart calculated. Use get_result('{result_id}') to retrieve full chart data.",
+            }, indent=2),
         )]
     except Exception as e:
         logger.error(f"Error calculating natal chart: {e}", exc_info=True)
@@ -237,10 +344,83 @@ async def _handle_calculate_natal_chart(
         )]
 
 
+def _build_chart_preview(chart: NatalChart) -> dict[str, Any]:
+    """Build a small preview of the chart for quick decisions."""
+    # Extract sun/moon/rising signs
+    sun_sign = None
+    moon_sign = None
+    rising_sign = None
+    
+    if hasattr(chart, 'planets'):
+        sun_pos = chart.planets.get(Planet.SUN)
+        moon_pos = chart.planets.get(Planet.MOON)
+        
+        if sun_pos:
+            sun_sign = getattr(sun_pos.zonal, 'sign_name', None)
+        if moon_pos:
+            moon_sign = getattr(moon_pos.zonal, 'sign_name', None)
+    
+    if hasattr(chart, 'ascendant') and chart.ascendant:
+        rising_sign = getattr(chart.ascendant, 'sign_name', None)
+    
+    preview = {
+        "sun_sign": sun_sign,
+        "moon_sign": moon_sign,
+        "rising_sign": rising_sign,
+    }
+    
+    # Add a few key planets for context
+    if hasattr(chart, 'planets'):
+        for planet in [Planet.MERCURY, Planet.VENUS, Planet.MARS]:
+            if planet in chart.planets:
+                pos = chart.planets[planet]
+                preview[f"{planet.name.lower()}_sign"] = getattr(pos.zonal, 'sign_name', None)
+    
+    return preview
+
+
+async def _handle_get_result(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle get_result tool call - retrieve cached data by result_id."""
+    try:
+        result_id = arguments.get("result_id")
+        
+        if not result_id:
+            return [TextContent(
+                type="text",
+                text="Error: result_id is required. Provide the result_id from calculate_natal_chart or other compute tools.",
+            )]
+        
+        entry = _get_cached_result(result_id)
+        
+        if entry is None:
+            return [TextContent(
+                type="text",
+                text=f"Error: result_id '{result_id}' not found or expired. Call the compute tool again to generate a new result.",
+            )]
+        
+        # Return the cached data
+        return [TextContent(
+            type="text",
+            text=json.dumps(entry["data"], indent=2, default=str),
+        )]
+    except Exception as e:
+        logger.error(f"Error retrieving result: {e}", exc_info=True)
+        return [TextContent(
+            type="text",
+            text=f"Error retrieving result: {str(e)}",
+        )]
+
+
 async def _handle_get_planet_positions(
     arguments: dict[str, Any],
 ) -> list[TextContent]:
-    """Handle get_planet_positions tool call."""
+    """Handle get_planet_positions tool call.
+    
+    Returns result_id and preview. The full positions data is cached
+    and can be retrieved later using get_result(result_id).
+    
+    Preview contains a summary of current positions for quick decisions.
+    """
     try:
         params = GetPlanetPositionsParams(**arguments)
         dt = datetime.fromisoformat(params.datetime)
@@ -249,12 +429,12 @@ async def _handle_get_planet_positions(
         from datetime import timezone, timedelta
         now = datetime.now(timezone.utc)
         date_diff = abs((dt - now).total_seconds())
-        
+
         # Warn if date is more than 3 days off from current
         if date_diff > 3 * 24 * 3600:  # 3 days in seconds
             date_diff_days = round(date_diff / 86400)
             logger.warning(f"Date {dt} is {date_diff_days} days from current time")
-        
+
         jd = gregorian_to_julian_day(dt.year, dt.month, dt.day, dt.hour)
 
         planets = params.planets or [
@@ -284,15 +464,37 @@ async def _handle_get_planet_positions(
         # Include current time in response to help LLM track the correct date
         from datetime import timezone
         now = datetime.now(timezone.utc)
-        
-        result = {
+
+        full_result = {
             "current_datetime": now.isoformat(),
             "positions": positions,
         }
 
+        # Generate result ID and create preview
+        planets_str = ",".join(sorted(planets))
+        result_id = _generate_result_id(
+            {"datetime": params.datetime, "planets": planets_str}, 
+            "pp"
+        )
+        
+        # Build preview with just the signs for quick decisions
+        preview = {
+            "current_datetime": now.isoformat(),
+            "positions_summary": {name: data.get("sign", "?") for name, data in positions.items()},
+        }
+
+        # Cache the full result
+        _cache_result(result_id, full_result, preview)
+
+        logger.info(f"Cached planet positions result: {result_id}")
+
         return [TextContent(
             type="text",
-            text=json.dumps(result, indent=2),
+            text=json.dumps({
+                "result_id": result_id,
+                "preview": preview,
+                "message": f"Positions calculated. Use get_result('{result_id}') to retrieve full positions.",
+            }, indent=2),
         )]
     except Exception as e:
         logger.error(f"Error getting planet positions: {e}")
@@ -329,20 +531,26 @@ async def _handle_get_current_time(
 async def _handle_calculate_aspects(
     arguments: dict[str, Any],
 ) -> list[TextContent]:
-    """Handle calculate_aspects tool call."""
+    """Handle calculate_aspects tool call.
+    
+    Returns result_id and preview. The full aspects data is cached
+    and can be retrieved later using get_result(result_id).
+    
+    Preview contains a summary of the top aspects for quick decisions.
+    """
     try:
         # Get chart data from arguments
         chart_data = arguments.get("chart_data", {})
-        
+
         if not chart_data:
             return [TextContent(
                 type="text",
                 text="Error: chart_data is required. Use calculate_natal_chart first.",
             )]
-        
+
         # Reconstruct planet positions from chart data
         planets_data = chart_data.get("planets", {})
-        
+
         if not planets_data:
             return [TextContent(
                 type="text",
@@ -378,32 +586,77 @@ async def _handle_calculate_aspects(
 
         # Calculate major aspects
         aspects = get_major_aspects(planets)
-        
+
         if not aspects:
             return [TextContent(
                 type="text",
-                text="No major aspects found in this chart.",
+                text=json.dumps({
+                    "result_id": None,
+                    "preview": {"message": "No major aspects found in this chart."},
+                }, indent=2),
             )]
-        
-        # Format results
+
+        # Format results for full output
         lines = ["Major Natal Aspects"]
         lines.append("=" * 50)
-        
+
         for aspect in aspects[:20]:  # Top 20 most significant
             lines.append(
                 f"{aspect.planet1.name} - {aspect.planet2.name}: "
                 f"{aspect.type.name.title()} ({aspect.orb:.1f}°, "
                 f"{'applying' if aspect.is_applying else 'separating'})"
             )
-        
+
         if len(aspects) > 20:
             lines.append(f"... and {len(aspects) - 20} more aspects")
-        
+
+        full_result = {
+            "aspects": [
+                {
+                    "planet1": a.planet1.name,
+                    "planet2": a.planet2.name,
+                    "type": a.type.name,
+                    "orb": round(a.orb, 2),
+                    "is_applying": a.is_applying,
+                }
+                for a in aspects
+            ],
+            "formatted_text": "\n".join(lines),
+        }
+
+        # Generate result ID and create preview
+        chart_id = _generate_result_id(chart_data, "ch")
+        result_id = f"as_{chart_id[-8:]}"
+
+        # Build preview with just the top 5 aspects for quick decisions
+        preview = {
+            "chart_id": chart_id,
+            "aspect_count": len(aspects),
+            "top_aspects": [
+                {
+                    "planet1": aspects[i].planet1.name,
+                    "planet2": aspects[i].planet2.name,
+                    "type": aspects[i].type.name,
+                    "orb": round(aspects[i].orb, 2),
+                }
+                for i in range(min(5, len(aspects)))
+            ],
+        }
+
+        # Cache the full result
+        _cache_result(result_id, full_result, preview)
+
+        logger.info(f"Cached aspects result: {result_id}")
+
         return [TextContent(
             type="text",
-            text="\n".join(lines),
+            text=json.dumps({
+                "result_id": result_id,
+                "preview": preview,
+                "message": f"Aspects calculated. Use get_result('{result_id}') to retrieve full aspects data.",
+            }, indent=2),
         )]
-        
+
     except Exception as e:
         logger.error(f"Error calculating aspects: {e}", exc_info=True)
         return [TextContent(
@@ -415,20 +668,45 @@ async def _handle_calculate_aspects(
 async def _handle_calculate_transits(
     arguments: dict[str, Any],
 ) -> list[TextContent]:
-    """Handle calculate_transits tool call."""
+    """Handle calculate_transits tool call.
+    
+    Accepts either natal_chart (full data) OR natal_chart_id (cached result).
+    Using natal_chart_id is recommended as it keeps context lean.
+    
+    Flow with result_id:
+        1. calculate_natal_chart(...) returns {result_id, preview}
+        2. [LLM decides it needs to check something]
+        3. get_result(result_id) returns full chart data
+        4. calculate_transits(natal_chart_id=result_id, ...)
+    """
     from astrology.charts.chart import NatalChart
     from astrology.transits.transit import get_current_transits
     from astrology.core.ephemeris import PlanetPosition, ZonalPosition
 
     try:
-        # Parse natal chart from arguments
-        natal_data = arguments.get("natal_chart", {})
-
-        if not natal_data:
-            return [TextContent(
-                type="text",
-                text="Error: natal_chart is required. Use calculate_natal_chart to get chart data.",
-            )]
+        # Check if natal_chart_id is provided (new pattern)
+        natal_chart_id = arguments.get("natal_chart_id")
+        
+        if natal_chart_id:
+            # Retrieve full chart data from cache
+            entry = _get_cached_result(natal_chart_id)
+            if entry is None:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: natal_chart_id '{natal_chart_id}' not found or expired. "
+                         "Call calculate_natal_chart to generate a new chart, or use natal_chart with full data.",
+                )]
+            natal_data = entry["data"]
+        else:
+            # Legacy: use full chart data from arguments
+            natal_data = arguments.get("natal_chart", {})
+            
+            if not natal_data:
+                return [TextContent(
+                    type="text",
+                    text="Error: either natal_chart_id or natal_chart is required. "
+                         "Use calculate_natal_chart to get a result_id, or pass full chart data.",
+                )]
 
         # Validate birth_datetime
         birth_dt_str = natal_data.get("birth_datetime")
@@ -820,6 +1098,7 @@ def main():
             """List all available tools."""
             return [
                 CALCULATE_NATAL_CHART_TOOL,
+                GET_RESULT_TOOL,  # New: Retrieve cached results by ID
                 GET_PLANET_POSITIONS_TOOL,
                 CALCULATE_ASPECTS_TOOL,
                 CALCULATE_TRANSITS_TOOL,
@@ -836,6 +1115,8 @@ def main():
             """Handle tool calls."""
             if name == "calculate_natal_chart":
                 return await _handle_calculate_natal_chart(arguments)
+            elif name == "get_result":
+                return await _handle_get_result(arguments)
             elif name == "get_planet_positions":
                 return await _handle_get_planet_positions(arguments)
             elif name == "calculate_aspects":

@@ -4,23 +4,27 @@ import pytest
 
 from src.astrology_mcp_server.main import (
     CALCULATE_ASPECTS_TOOL,
+    CALCULATE_NATAL_CHART_TOOL,
     CALCULATE_PLANET_ASPECT_TOOL,
     CALCULATE_TRANSITS_TOOL,
     GET_CURRENT_TIME_TOOL,
     GET_HOUSES_TOOL,
     GET_PLANET_POSITIONS_TOOL,
+    GET_RESULT_TOOL,
 )
 
 
 def test_all_tools_are_defined():
     """Verify all expected tools are defined and have proper schemas."""
     tools = [
-        CALCULATE_ASPECTS_TOOL,
-        CALCULATE_PLANET_ASPECT_TOOL,
-        CALCULATE_TRANSITS_TOOL,
-        GET_CURRENT_TIME_TOOL,
-        GET_HOUSES_TOOL,
+        CALCULATE_NATAL_CHART_TOOL,
+        GET_RESULT_TOOL,
         GET_PLANET_POSITIONS_TOOL,
+        CALCULATE_ASPECTS_TOOL,
+        CALCULATE_TRANSITS_TOOL,
+        GET_HOUSES_TOOL,
+        GET_CURRENT_TIME_TOOL,
+        CALCULATE_PLANET_ASPECT_TOOL,
     ]
 
     for tool in tools:
@@ -28,6 +32,17 @@ def test_all_tools_are_defined():
         # Verify inputSchema has required type field
         assert "type" in tool.inputSchema, f"Tool {tool.name} missing 'type' in inputSchema"
         assert tool.inputSchema["type"] == "object", f"Tool {tool.name} type must be 'object'"
+
+
+def test_get_result_tool_is_defined():
+    """Verify GET_RESULT_TOOL is defined and has proper schema."""
+    assert GET_RESULT_TOOL.name == "get_result"
+    assert GET_RESULT_TOOL.inputSchema["type"] == "object"
+    assert "properties" in GET_RESULT_TOOL.inputSchema
+    assert "result_id" in GET_RESULT_TOOL.inputSchema["properties"]
+    # result_id should be required
+    assert "required" in GET_RESULT_TOOL.inputSchema
+    assert "result_id" in GET_RESULT_TOOL.inputSchema["required"]
 
 
 def test_get_planet_positions_tool_input_schema():
@@ -301,3 +316,322 @@ def test_house_positions_serialized_correctly():
     # Verify JSON serialization works
     json_str = json.dumps(serialized)
     assert "house_positions" in json_str, "house_positions should be in JSON output"
+
+
+def test_calculate_natal_chart_returns_result_id_and_preview():
+    """Verify calculate_natal_chart returns result_id and preview for lazy loading."""
+    import asyncio
+    from src.astrology_mcp_server.main import _handle_calculate_natal_chart
+
+    arguments = {
+        "birth_datetime": "1984-05-10T20:44:00-07:00",
+        "latitude": 34.02,
+        "longitude": -118.45,
+    }
+
+    result = asyncio.run(_handle_calculate_natal_chart(arguments))
+
+    # Verify we got a valid response
+    assert len(result) == 1
+    content = result[0]
+    assert content.type == "text"
+
+    # Parse the JSON response
+    import json as json_module
+    data = json_module.loads(content.text)
+
+    # Verify result_id and preview are present
+    assert "result_id" in data, "Response should contain result_id"
+    assert "preview" in data, "Response should contain preview"
+    assert "message" in data, "Response should contain message"
+
+    # Verify result_id format
+    assert data["result_id"].startswith("nc_"), "result_id should start with 'nc_'"
+
+    # Verify preview contains key highlights
+    preview = data["preview"]
+    assert "sun_sign" in preview, "Preview should contain sun_sign"
+    assert "moon_sign" in preview, "Preview should contain moon_sign"
+    assert "rising_sign" in preview, "Preview should contain rising_sign"
+
+    # Verify the actual signs match expected values
+    assert preview["sun_sign"] == "Taurus", f"Sun sign should be Taurus, got {preview['sun_sign']}"
+    assert preview["moon_sign"] == "Virgo", f"Moon sign should be Virgo, got {preview['moon_sign']}"
+
+
+def test_get_result_retrieves_cached_chart():
+    """Verify get_result retrieves cached chart data by result_id."""
+    import asyncio
+    from src.astrology_mcp_server.main import (
+        _handle_calculate_natal_chart,
+        _handle_get_result,
+    )
+
+    # First, calculate a chart to get a result_id
+    calc_args = {
+        "birth_datetime": "1984-05-10T20:44:00-07:00",
+        "latitude": 34.02,
+        "longitude": -118.45,
+    }
+    
+    calc_result = asyncio.run(_handle_calculate_natal_chart(calc_args))
+    import json as json_module
+    calc_data = json_module.loads(calc_result[0].text)
+    result_id = calc_data["result_id"]
+
+    # Now retrieve the full chart using get_result
+    get_args = {"result_id": result_id}
+    get_result = asyncio.run(_handle_get_result(get_args))
+
+    # Verify we got the full chart data
+    assert len(get_result) == 1
+    content = get_result[0]
+    assert content.type == "text"
+    
+    full_chart = json_module.loads(content.text)
+    
+    # Verify the chart contains all expected fields
+    assert "birth_datetime" in full_chart
+    assert "location" in full_chart
+    assert "planets" in full_chart
+    assert "houses" in full_chart
+    assert "angles" in full_chart
+
+    # Verify planets contain expected data
+    assert "SUN" in full_chart["planets"]
+    sun_data = full_chart["planets"]["SUN"]
+    assert "longitude" in sun_data
+    assert "sign" in sun_data
+
+
+def test_get_result_returns_error_for_invalid_id():
+    """Verify get_result returns error for non-existent result_id."""
+    import asyncio
+    from src.astrology_mcp_server.main import _handle_get_result
+
+    get_args = {"result_id": "nonexistent_12345"}
+    result = asyncio.run(_handle_get_result(get_args))
+
+    # Verify we got an error response
+    assert len(result) == 1
+    content = result[0]
+    assert "Error" in content.text or "not found" in content.text.lower()
+
+
+def test_calculate_transits_with_natal_chart_id():
+    """Verify calculate_transits works with natal_chart_id parameter."""
+    import asyncio
+    from src.astrology_mcp_server.main import (
+        _handle_calculate_natal_chart,
+        _handle_calculate_transits,
+    )
+
+    # Calculate a chart to get result_id
+    calc_args = {
+        "birth_datetime": "1984-05-10T20:44:00-07:00",
+        "latitude": 34.02,
+        "longitude": -118.45,
+    }
+    
+    calc_result = asyncio.run(_handle_calculate_natal_chart(calc_args))
+    import json as json_module
+    calc_data = json_module.loads(calc_result[0].text)
+    result_id = calc_data["result_id"]
+
+    # Calculate transits using natal_chart_id
+    transit_args = {
+        "natal_chart_id": result_id,
+        "current_datetime": "2026-04-13T12:00:00Z",
+    }
+    
+    transit_result = asyncio.run(_handle_calculate_transits(transit_args))
+
+    # Verify we got a valid transit report
+    assert len(transit_result) == 1
+    content = transit_result[0]
+    assert content.type == "text"
+    assert "Error" not in content.text
+    assert "Current Transits Report" in content.text
+
+
+def test_get_planet_positions_returns_result_id_and_preview():
+    """Verify get_planet_positions returns result_id and preview."""
+    import asyncio
+    from src.astrology_mcp_server.main import _handle_get_planet_positions
+
+    arguments = {
+        "datetime": "2026-04-13T12:00:00Z",
+        "planets": ["SUN", "MOON", "MERCURY"],
+    }
+
+    result = asyncio.run(_handle_get_planet_positions(arguments))
+
+    # Verify we got a valid response
+    assert len(result) == 1
+    content = result[0]
+    assert content.type == "text"
+
+    # Parse the JSON response
+    import json as json_module
+    data = json_module.loads(content.text)
+
+    # Verify result_id and preview are present
+    assert "result_id" in data, "Response should contain result_id"
+    assert "preview" in data, "Response should contain preview"
+
+    # Verify result_id format
+    assert data["result_id"].startswith("pp_"), "result_id should start with 'pp_'"
+
+    # Verify preview contains positions_summary
+    preview = data["preview"]
+    assert "positions_summary" in preview, "Preview should contain positions_summary"
+    
+    # Verify the expected planets are in summary
+    for planet in ["SUN", "MOON", "MERCURY"]:
+        assert planet in preview["positions_summary"], f"Preview should contain {planet}"
+
+
+def test_get_result_retrieves_planet_positions():
+    """Verify get_result retrieves cached planet positions by result_id."""
+    import asyncio
+    from src.astrology_mcp_server.main import (
+        _handle_get_planet_positions,
+        _handle_get_result,
+    )
+
+    # First, get planet positions to get a result_id
+    pos_args = {
+        "datetime": "2026-04-13T12:00:00Z",
+        "planets": ["SUN", "MOON"],
+    }
+    
+    pos_result = asyncio.run(_handle_get_planet_positions(pos_args))
+    import json as json_module
+    pos_data = json_module.loads(pos_result[0].text)
+    result_id = pos_data["result_id"]
+
+    # Now retrieve the full positions using get_result
+    get_args = {"result_id": result_id}
+    get_result = asyncio.run(_handle_get_result(get_args))
+
+    # Verify we got the full positions data
+    assert len(get_result) == 1
+    content = get_result[0]
+    assert content.type == "text"
+    
+    full_positions = json_module.loads(content.text)
+    
+    # Verify the data contains expected fields
+    assert "current_datetime" in full_positions
+    assert "positions" in full_positions
+    
+    # Verify planets contain expected data
+    assert "SUN" in full_positions["positions"]
+    sun_data = full_positions["positions"]["SUN"]
+    assert "longitude" in sun_data
+    assert "sign" in sun_data
+
+
+def test_calculate_aspects_returns_result_id_and_preview():
+    """Verify calculate_aspects returns result_id and preview."""
+    import asyncio
+    from src.astrology_mcp_server.main import _handle_calculate_aspects
+
+    # Use a more complete chart for testing (with full planet data)
+    # Include planets that form major aspects to ensure we get aspects
+    chart_data = {
+        "birth_datetime": "1984-05-10T20:44:00-07:00",
+        "location": {"latitude": 34.02, "longitude": -118.45},
+        "planets": {
+            "SUN": {"longitude": 50.63689351655029, "sign": "Gemini", "degree_in_sign": 20.64},
+            "MOON": {"longitude": 176.26079997064508, "sign": "Virgo", "degree_in_sign": 26.26},
+            "MERCURY": {"longitude": 27.501945446411998, "sign": "Gemini", "degree_in_sign": 27.50},
+            "VENUS": {"longitude": 41.00909130013627, "sign": "Gemini", "degree_in_sign": 11.01},
+            "MARS": {"longitude": 230.92048984724283, "sign": "Sagittarius", "degree_in_sign": 20.92},
+            "JUPITER": {"longitude": 282.7592733990824, "sign": "Aquarius", "degree_in_sign": 12.76},
+            "SATURN": {"longitude": 222.49514823775914, "sign": "Sagittarius", "degree_in_sign": 12.50},
+        }
+    }
+
+    arguments = {
+        "chart_data": chart_data,
+    }
+
+    result = asyncio.run(_handle_calculate_aspects(arguments))
+
+    # Verify we got a valid response
+    assert len(result) == 1, f"Expected 1 result, got {len(result)}"
+    content = result[0]
+    assert content.type == "text", f"Expected text type, got {content.type}"
+
+    # Parse the JSON response
+    import json as json_module
+    try:
+        data = json_module.loads(content.text)
+    except json_module.JSONDecodeError:
+        # Check if it's an error message
+        assert False, f"Expected JSON response, got: {content.text}"
+
+    # Verify result_id and preview are present
+    assert "result_id" in data, f"Response should contain result_id: {data}"
+    assert "preview" in data, f"Response should contain preview: {data}"
+
+    # Verify result_id format
+    assert data["result_id"].startswith("as_"), f"result_id should start with 'as_': {data['result_id']}"
+
+    # Verify preview contains aspect_count and top_aspects
+    preview = data["preview"]
+    assert "aspect_count" in preview, f"Preview should contain aspect_count: {preview}"
+    assert "top_aspects" in preview, f"Preview should contain top_aspects: {preview}"
+
+
+def test_get_result_retrieves_aspects():
+    """Verify get_result retrieves cached aspects by result_id."""
+    import asyncio
+    from src.astrology_mcp_server.main import (
+        _handle_calculate_aspects,
+        _handle_get_result,
+    )
+
+    # Use a more complete chart for testing with planets that form aspects
+    chart_data = {
+        "birth_datetime": "1984-05-10T20:44:00-07:00",
+        "location": {"latitude": 34.02, "longitude": -118.45},
+        "planets": {
+            "SUN": {"longitude": 50.63689351655029, "sign": "Gemini", "degree_in_sign": 20.64},
+            "MOON": {"longitude": 176.26079997064508, "sign": "Virgo", "degree_in_sign": 26.26},
+            "MERCURY": {"longitude": 27.501945446411998, "sign": "Gemini", "degree_in_sign": 27.50},
+            "VENUS": {"longitude": 41.00909130013627, "sign": "Gemini", "degree_in_sign": 11.01},
+            "MARS": {"longitude": 230.92048984724283, "sign": "Sagittarius", "degree_in_sign": 20.92},
+            "JUPITER": {"longitude": 282.7592733990824, "sign": "Aquarius", "degree_in_sign": 12.76},
+            "SATURN": {"longitude": 222.49514823775914, "sign": "Sagittarius", "degree_in_sign": 12.50},
+        }
+    }
+
+    aspects_args = {
+        "chart_data": chart_data,
+    }
+    
+    aspects_result = asyncio.run(_handle_calculate_aspects(aspects_args))
+    import json as json_module
+    try:
+        aspects_data = json_module.loads(aspects_result[0].text)
+    except json_module.JSONDecodeError:
+        pytest.fail(f"Expected JSON response, got: {aspects_result[0].text}")
+    
+    result_id = aspects_data["result_id"]
+
+    # Now retrieve the full aspects using get_result
+    get_args = {"result_id": result_id}
+    get_result = asyncio.run(_handle_get_result(get_args))
+
+    # Verify we got the full aspects data
+    assert len(get_result) == 1
+    content = get_result[0]
+    assert content.type == "text"
+    
+    full_aspects = json_module.loads(content.text)
+    
+    # Verify the data contains expected fields
+    assert "aspects" in full_aspects
+    assert isinstance(full_aspects["aspects"], list)
