@@ -207,9 +207,10 @@ GET_RESULT_TOOL = Tool(
 GET_PLANET_POSITIONS_TOOL = Tool(
     name="get_planet_positions",
     description=(
-        "Get current planetary positions for specified planets. "
-        "IMPORTANT: Ensure the datetime parameter is set to the CURRENT date/time, not a past or future date. "
-        "Use get_current_time tool first to verify the current UTC datetime before calling this tool. "
+        "Get planetary positions for specified planets at any date. "
+        "Use this to get positions for past, present, or future dates. "
+        "For the current date/time, you can call get_current_time first to verify the datetime. "
+        "For transits at a specific date, use calculate_transits instead. "
         "Returns longitude, latitude, distance, and motion status."
     ),
     inputSchema=GetPlanetPositionsParams.model_json_schema(),
@@ -238,8 +239,9 @@ GET_CURRENT_TIME_TOOL = Tool(
     name="get_current_time",
     description=(
         "Get the current date and time in UTC. "
-        "Always call this tool first to get the accurate current date/time before calculating transits "
-        "or getting current planetary positions. Returns UTC datetime with year, month, day, hour, minute, second."
+        "Call this tool first when you need transits for the PRESENT moment. "
+        "For past or future dates, use calculate_transits with a specific current_datetime parameter instead. "
+        "Returns UTC datetime with year, month, day, hour, minute, second."
     ),
     inputSchema={
         "type": "object",
@@ -250,11 +252,13 @@ GET_CURRENT_TIME_TOOL = Tool(
 CALCULATE_TRANSITS_TOOL = Tool(
     name="calculate_transits",
     description=(
-        "Calculate current transits comparing planetary positions to a natal chart. "
-        "IMPORTANT: Always call get_current_time FIRST to verify the current date before using this tool. "
+        "Calculate transits comparing planetary positions to a natal chart for any date. "
+        "Use this to analyze transits for past events, present moment, or future dates. "
         "You can pass either: (1) natal_chart_id from calculate_natal_chart for lean context, or "
         "(2) natal_chart with full chart data (legacy). "
         "When using natal_chart_id, the full chart is fetched from cache before calculating transits. "
+        "The current_datetime parameter defaults to now if not provided, but you can specify any date/time "
+        "(e.g., '2022-07-02T00:00:00+00:00' for July 2, 2022 UTC). "
         "Returns transit events sorted by orb (tightest first)."
     ),
     inputSchema=CalculateTransitsParams.model_json_schema(),
@@ -415,25 +419,15 @@ async def _handle_get_planet_positions(
     arguments: dict[str, Any],
 ) -> list[TextContent]:
     """Handle get_planet_positions tool call.
-    
+
     Returns result_id and preview. The full positions data is cached
     and can be retrieved later using get_result(result_id).
-    
-    Preview contains a summary of current positions for quick decisions.
+
+    Preview contains a summary of positions for the specified date.
     """
     try:
         params = GetPlanetPositionsParams(**arguments)
         dt = datetime.fromisoformat(params.datetime)
-
-        # Validate date is current (within 3 days of now) to prevent using old/future dates
-        from datetime import timezone, timedelta
-        now = datetime.now(timezone.utc)
-        date_diff = abs((dt - now).total_seconds())
-
-        # Warn if date is more than 3 days off from current
-        if date_diff > 3 * 24 * 3600:  # 3 days in seconds
-            date_diff_days = round(date_diff / 86400)
-            logger.warning(f"Date {dt} is {date_diff_days} days from current time")
 
         jd = gregorian_to_julian_day(dt.year, dt.month, dt.day, dt.hour)
 
