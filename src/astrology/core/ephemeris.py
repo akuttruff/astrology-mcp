@@ -137,11 +137,11 @@ def init_swe(path: str | None = None) -> None:
     if path:
         swe.set_ephe_path(path)
     else:
-        # Try common ephemeris paths
+        # Try common ephemeris paths (removed hardcoded user-specific path)
         try_paths = [
-            "/Users/amiekuttruff/ephe",
             "/usr/share/swisseph",
             "./ephe",
+            "/opt/swisseph",
         ]
         for p in try_paths:
             try:
