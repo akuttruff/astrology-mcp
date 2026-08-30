@@ -1169,6 +1169,20 @@ async def _handle_scan_transits(
             
             current_date += hour_increment
         
+        # Deduplicate events: keep only the highest-scoring event per planet pair + aspect type
+        seen_events = set()
+        unique_events = []
+        for event in transit_events:
+            key = (
+                event["transiting_planet"],
+                event["natal_planet"],
+                event["aspect_type"]
+            )
+            if key not in seen_events:
+                seen_events.add(key)
+                unique_events.append(event)
+        transit_events = unique_events
+
         # Sort by significance and limit results
         transit_events.sort(key=lambda x: x["significance_score"], reverse=True)
         
