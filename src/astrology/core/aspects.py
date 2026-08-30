@@ -193,22 +193,29 @@ def calculate_planet_aspect(
 
     # Only determine applying/separating if both speeds are known (non-zero)
     if speed1 != 0.0 or speed2 != 0.0:
-        # Determine relative motion
-        if lon1 < lon2:
-            # Planet 1 is behind planet 2
-            if speed1 > speed2:
-                # Planet 1 catching up (applying)
-                is_applying = True
-            else:
-                # Planet 2 pulling away (separating)
-                is_separating = True
-        else:
-            # Planet 2 is behind planet 1
+        # Use short arc calculation to handle circular nature of zodiac
+        # This correctly handles cases like Planet 1 at 355° catching Planet 2 at 5°
+        lon_diff = (lon2 - lon1) % 360
+        
+        if lon_diff > 180:
+            # Planet 2 is behind Planet 1 (counter-clockwise direction)
+            # Planet 2 needs to catch up
             if speed2 > speed1:
-                # Planet 2 catching up (applying)
                 is_applying = True
             else:
-                # Planet 1 pulling away (separating)
+                is_separating = True
+        elif lon_diff < 180:
+            # Planet 2 is ahead of Planet 1 (clockwise direction)
+            # Planet 1 needs to catch up
+            if speed1 > speed2:
+                is_applying = True
+            else:
+                is_separating = True
+        # If lon_diff == 180 (opposition), use speed comparison
+        else:
+            if speed1 > speed2:
+                is_applying = True
+            elif speed2 > speed1:
                 is_separating = True
     else:
         # If speeds are unknown, mark as applying if orb is small (within 5°)
