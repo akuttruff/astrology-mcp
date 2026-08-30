@@ -83,12 +83,13 @@ ZODIAC_NAMES = [
 ]
 
 
-def _convert_to_zonal(longitude: float, zodiac_type: str = "tropical") -> ZonalPosition:
+def _convert_to_zonal(longitude: float, zodiac_type: str = "tropical", jd: float | None = None) -> ZonalPosition:
     """Convert longitude to zonal position (sign and degree).
 
     Args:
         longitude: Longitude in degrees (0-360)
         zodiac_type: "tropical" or "sidereal"
+        jd: Julian Day (optional, required for accurate sidereal calculations)
 
     Returns:
         ZonalPosition with sign and degree information
@@ -99,8 +100,13 @@ def _convert_to_zonal(longitude: float, zodiac_type: str = "tropical") -> ZonalP
     # For tropical zodiac, start from 0° Aries (equinox)
     # For sidereal, we'd need to subtract ayanamsa
     if zodiac_type == "sidereal":
-        # Apply Lahiri ayanamsa (approximately 24°)
-        ayanamsa = 24.0
+        # Use the provided JD for ayanamsa calculation, or default to J2000.0
+        if jd is not None:
+            ayanamsa = calculate_ayanamsa(jd)
+        else:
+            # Fallback: use approximate Lahiri ayanamsa (24° at J2000.0)
+            # This is acceptable for most purposes
+            ayanamsa = 24.0
         longitude = (longitude - ayanamsa) % 360
 
     # Calculate sign and degree
