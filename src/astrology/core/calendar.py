@@ -192,14 +192,21 @@ def to_utc(dt: datetime) -> datetime:
     """Convert a datetime to UTC.
 
     Args:
-        dt: Input datetime (with or without timezone info)
+        dt: Input datetime with timezone info (must be timezone-aware)
 
     Returns:
         Datetime in UTC timezone
+
+    Raises:
+        ValueError: If datetime is naive (no timezone info)
     """
     if dt.tzinfo is None:
-        # Assume input is already UTC if no timezone
-        return dt.replace(tzinfo=timezone.utc)
+        raise ValueError(
+            "Datetime must include timezone information. "
+            "Please provide a timezone-aware datetime (e.g., '1990-01-15T14:30:00-05:00' "
+            "for EST). Use datetime.fromisoformat() with timezone offset or "
+            "datetime.now(timezone.utc) for UTC."
+        )
     return dt.astimezone(timezone.utc)
 
 

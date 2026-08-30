@@ -1,6 +1,6 @@
 """Tests for solar arc progression calculations."""
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 import pytest
 
@@ -19,14 +19,14 @@ class TestSolarArcCalculation:
 
     def test_solar_arc_basic(self):
         """Test basic solar arc calculation."""
-        birth_dt = datetime(1984, 5, 10, 20, 44)
+        birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=34.021185,
             longitude=-118.402673,
         )
 
-        progression_dt = datetime(2024, 5, 10)
+        progression_dt = datetime(2024, 5, 10, tzinfo=timezone(timedelta(hours=-7)))
         sun_arc = calculate_solar_arc(chart, progression_dt)
 
         # Sun should have moved roughly 40 years * 360°/year ≈ 14,400°
@@ -36,14 +36,14 @@ class TestSolarArcCalculation:
 
     def test_solar_arc_same_date(self):
         """Test solar arc when progression date equals birth date."""
-        birth_dt = datetime(1984, 5, 10, 20, 44)
+        birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=34.021185,
             longitude=-118.402673,
         )
 
-        progression_dt = datetime(1984, 5, 10, 20, 44)
+        progression_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         sun_arc = calculate_solar_arc(chart, progression_dt)
 
         # Sun arc should be approximately 0° or ~360° (same position)
@@ -52,7 +52,7 @@ class TestSolarArcCalculation:
 
     def test_solar_arc_increases_with_time(self):
         """Test that solar arc increases as progression date moves forward."""
-        birth_dt = datetime(1984, 5, 10, 20, 44)
+        birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=34.021185,
@@ -60,9 +60,9 @@ class TestSolarArcCalculation:
         )
 
         # Calculate solar arcs for different dates
-        arc_1year = calculate_solar_arc(chart, datetime(1985, 5, 10))
-        arc_5years = calculate_solar_arc(chart, datetime(1989, 5, 10))
-        arc_10years = calculate_solar_arc(chart, datetime(1994, 5, 10))
+        arc_1year = calculate_solar_arc(chart, datetime(1985, 5, 10, tzinfo=timezone(timedelta(hours=-7))))
+        arc_5years = calculate_solar_arc(chart, datetime(1989, 5, 10, tzinfo=timezone(timedelta(hours=-7))))
+        arc_10years = calculate_solar_arc(chart, datetime(1994, 5, 10, tzinfo=timezone(timedelta(hours=-7))))
 
         # Solar arc should increase with time (allowing for wraparound)
         # All arcs should be different and generally increasing
@@ -78,14 +78,14 @@ class TestProgressedChart:
 
     def test_progressed_chart_creation(self):
         """Test creating a solar arc progressed chart."""
-        birth_dt = datetime(1984, 5, 10, 20, 44)
+        birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         natal_chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=34.021185,
             longitude=-118.402673,
         )
 
-        progression_dt = datetime(2024, 5, 10)
+        progression_dt = datetime(2024, 5, 10, tzinfo=timezone(timedelta(hours=-7)))
         progressed_chart = calculate_solar_arc_progressed_chart(
             natal_chart, progression_dt
         )
@@ -96,14 +96,14 @@ class TestProgressedChart:
 
     def test_progressed_planets_have_new_positions(self):
         """Test that progressed planets have new longitude positions."""
-        birth_dt = datetime(1984, 5, 10, 20, 44)
+        birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         natal_chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=34.021185,
             longitude=-118.402673,
         )
 
-        progression_dt = datetime(2024, 5, 10)
+        progression_dt = datetime(2024, 5, 10, tzinfo=timezone(timedelta(hours=-7)))
         progressed_chart = calculate_solar_arc_progressed_chart(
             natal_chart, progression_dt
         )
@@ -120,14 +120,14 @@ class TestProgressedChart:
 
     def test_progressed_ascendant(self):
         """Test that progressed Ascendant is calculated."""
-        birth_dt = datetime(1984, 5, 10, 20, 44)
+        birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         natal_chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=34.021185,
             longitude=-118.402673,
         )
 
-        progression_dt = datetime(2024, 5, 10)
+        progression_dt = datetime(2024, 5, 10, tzinfo=timezone(timedelta(hours=-7)))
         progressed_chart = calculate_solar_arc_progressed_chart(
             natal_chart, progression_dt
         )
@@ -138,14 +138,14 @@ class TestProgressedChart:
 
     def test_progressed_mc(self):
         """Test that progressed MC is calculated."""
-        birth_dt = datetime(1984, 5, 10, 20, 44)
+        birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         natal_chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=34.021185,
             longitude=-118.402673,
         )
 
-        progression_dt = datetime(2024, 5, 10)
+        progression_dt = datetime(2024, 5, 10, tzinfo=timezone(timedelta(hours=-7)))
         progressed_chart = calculate_solar_arc_progressed_chart(
             natal_chart, progression_dt
         )
@@ -202,14 +202,14 @@ class TestProgressionAspects:
 
     def test_get_progression_aspect_basic(self):
         """Test getting aspects between natal and progressed positions."""
-        birth_dt = datetime(1984, 5, 10, 20, 44)
+        birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         natal_chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=34.021185,
             longitude=-118.402673,
         )
 
-        progression_dt = datetime(1985, 5, 10)  # 1 year later
+        progression_dt = datetime(1985, 5, 10, tzinfo=timezone(timedelta(hours=-7)))  # 1 year later
         progressed_chart = calculate_solar_arc_progressed_chart(
             natal_chart, progression_dt
         )
@@ -221,14 +221,14 @@ class TestProgressionAspects:
 
     def test_progression_aspect_with_significant_orb(self):
         """Test progression aspects with tight orb cutoff."""
-        birth_dt = datetime(1984, 5, 10, 20, 44)
+        birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         natal_chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=34.021185,
             longitude=-118.402673,
         )
 
-        progression_dt = datetime(1985, 5, 10)
+        progression_dt = datetime(1985, 5, 10, tzinfo=timezone(timedelta(hours=-7)))
         progressed_chart = calculate_solar_arc_progressed_chart(
             natal_chart, progression_dt
         )
@@ -241,14 +241,14 @@ class TestProgressionAspects:
 
     def test_progression_aspect_contains_expected_data(self):
         """Test that progression aspects contain expected data fields."""
-        birth_dt = datetime(1984, 5, 10, 20, 44)
+        birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         natal_chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=34.021185,
             longitude=-118.402673,
         )
 
-        progression_dt = datetime(1985, 5, 10)
+        progression_dt = datetime(1985, 5, 10, tzinfo=timezone(timedelta(hours=-7)))
         progressed_chart = calculate_solar_arc_progressed_chart(
             natal_chart, progression_dt
         )
@@ -270,14 +270,14 @@ class TestSolarArcEdgeCases:
 
     def test_progression_on_equinox(self):
         """Test progression calculation on equinox date."""
-        birth_dt = datetime(1984, 3, 20, 12, 0)  # Equinox
+        birth_dt = datetime(1984, 3, 20, 12, 0, tzinfo=timezone(timedelta(hours=-7)))  # Equinox
         natal_chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=0.0,  # Equator
             longitude=0.0,  # Prime meridian
         )
 
-        progression_dt = datetime(1985, 3, 20, 12, 0)
+        progression_dt = datetime(1985, 3, 20, 12, 0, tzinfo=timezone(timedelta(hours=-7)))
         sun_arc = calculate_solar_arc(natal_chart, progression_dt)
 
         # Should be approximately 360° (one year)
@@ -285,14 +285,14 @@ class TestSolarArcEdgeCases:
 
     def test_progression_on_solstice(self):
         """Test progression calculation on solstice date."""
-        birth_dt = datetime(1984, 6, 21, 12, 0)  # Summer solstice
+        birth_dt = datetime(1984, 6, 21, 12, 0, tzinfo=timezone(timedelta(hours=-7)))  # Summer solstice
         natal_chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=40.7128,  # New York
             longitude=-74.0060,
         )
 
-        progression_dt = datetime(1985, 6, 21, 12, 0)
+        progression_dt = datetime(1985, 6, 21, 12, 0, tzinfo=timezone(timedelta(hours=-7)))
         sun_arc = calculate_solar_arc(natal_chart, progression_dt)
 
         # Should be approximately 360° (one year)
@@ -300,7 +300,7 @@ class TestSolarArcEdgeCases:
 
     def test_multiple_years_progression(self):
         """Test progression over multiple years."""
-        birth_dt = datetime(1984, 5, 10, 20, 44)
+        birth_dt = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         natal_chart = calculate_natal_chart(
             birth_datetime=birth_dt,
             latitude=34.021185,
@@ -308,7 +308,7 @@ class TestSolarArcEdgeCases:
         )
 
         # 5 years later
-        progression_dt = datetime(1989, 5, 10, 20, 44)
+        progression_dt = datetime(1989, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
         sun_arc = calculate_solar_arc(natal_chart, progression_dt)
 
         # Should be approximately 5 * 360° = 1800°, which wraps to ~0°

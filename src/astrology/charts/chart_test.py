@@ -1,6 +1,6 @@
 """Tests for chart calculation module."""
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 import pytest
 
@@ -20,7 +20,7 @@ class TestWholeSignHouses:
     def test_ascendant_determines_house_1_sign(self):
         """The Ascendant sign determines House 1."""
         chart = calculate_natal_chart(
-            birth_datetime=datetime(2000, 1, 1, 12, 0),  # Noon on Y2K
+            birth_datetime=datetime(2000, 1, 1, 12, 0, tzinfo=timezone(timedelta(hours=-7))),  # Noon on Y2K
             latitude=40.7128,  # New York City
             longitude=-74.0060,
         )
@@ -43,7 +43,7 @@ class TestHousePlacement:
     def test_planet_in_same_sign_as_ascendant(self):
         """Planet in Ascendant's sign is in House 1."""
         chart = calculate_natal_chart(
-            birth_datetime=datetime(2000, 1, 1, 12, 0),
+            birth_datetime=datetime(2000, 1, 1, 12, 0, tzinfo=timezone(timedelta(hours=-7))),
             latitude=40.7128,
             longitude=-74.0060,
         )
@@ -112,7 +112,7 @@ class TestSignBasedQueries:
     def test_get_planet_in_sign(self):
         """Find all planets in a specific sign."""
         chart = calculate_natal_chart(
-            birth_datetime=datetime(1984, 5, 10, 20, 44),
+            birth_datetime=datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7))),
             latitude=37.7749,
             longitude=-122.4194,  # San Francisco
         )
@@ -129,7 +129,7 @@ class TestSignBasedQueries:
     def test_get_planet_in_house(self):
         """Find all planets in a specific house."""
         chart = calculate_natal_chart(
-            birth_datetime=datetime(1984, 5, 10, 20, 44),
+            birth_datetime=datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7))),
             latitude=37.7749,
             longitude=-122.4194,
         )
