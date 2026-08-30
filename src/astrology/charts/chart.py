@@ -192,12 +192,63 @@ def _find_planet_house(planet_longitude: float, houses_data: dict) -> int:
     else:
         asc_sign_index = ascendant.sign_index
 
-    # For Whole Sign houses, House 1 starts at 0° of the Ascendant's sign
-    # Calculate which house a planet is in based on its longitude relative to ASC sign
-    planet_sign_index = int(planet_longitude // 30)
+    # Helper function to extract longitude from house cusp (handles both ZonalPosition and dict)
+    def get_longitude(cusp) -> float:
+        if hasattr(cusp, "longitude"):
+            return cusp.longitude
+        elif isinstance(cusp, dict) and "longitude" in cusp:
+            return float(cusp["longitude"])
+        elif isinstance(cusp, (int, float)):
+            return float(cusp)
+        else:
+            return 0.0
 
-    # Calculate house number (1-12) based on sign offset from ASC
-    house_number = ((planet_sign_index - asc_sign_index) % 12) + 1
+    # Check if this is Whole Sign house system (all house cusps at sign boundaries)
+    # For Whole Sign, all house_1 through house_12 should be at 0° of their signs
+    is_whole_sign = True
+    for i in range(1, 13):
+        cusp = houses_data.get(f"house_{i}")
+        if cusp:
+            lon = get_longitude(cusp)
+            # Check if cusp is at 0° of a sign (within small tolerance)
+            if abs(lon - int(lon // 30) * 30) > 0.01:
+                is_whole_sign = False
+                break
+
+    if is_whole_sign:
+        # For Whole Sign houses, House 1 starts at 0° of the Ascendant's sign
+        # Calculate which house a planet is in based on its longitude relative to ASC sign
+        planet_sign_index = int(planet_longitude // 30)
+
+        # Calculate house number (1-12) based on sign offset from ASC
+        house_number = ((planet_sign_index - asc_sign_index) % 12) + 1
+    else:
+        # For non-Whole Sign systems, compare against actual house cusps
+        # Get all house cusps sorted by longitude
+        house_cusps = []
+        for i in range(1, 13):
+            cusp = houses_data.get(f"house_{i}")
+            if cusp:
+                house_cusps.append((get_longitude(cusp), i))
+
+        # Sort by longitude
+        house_cusps.sort(key=lambda x: x[0])
+
+        # Find which house the planet falls in
+        for i, (cusp_lon, house_num) in enumerate(house_cusps):
+            next_cusp_lon = house_cusps[(i + 1) % len(house_cusps)][0]
+
+            if cusp_lon < next_cusp_lon:
+                # Normal case: cusp to next cusp
+                if cusp_lon <= planet_longitude < next_cusp_lon:
+                    return house_num
+            else:
+                # Wraparound case (e.g., cusp at 350°, next at 20°)
+                if planet_longitude >= cusp_lon or planet_longitude < next_cusp_lon:
+                    return house_num
+
+        # Fallback: if we didn't find a match, return 1
+        return 1
 
     return house_number
 
@@ -275,12 +326,60 @@ def get_planet_transit_house(
     if not chart.ascendant:
         return 1
 
-    # For Whole Sign houses, House 1 starts at 0° of the Ascendant's sign
-    # Calculate which house a planet is in based on its longitude relative to ASC sign
-    asc_sign_index = int(chart.ascendant.longitude // 30)
-    planet_sign_index = int(transit_longitude // 30)
+    # Helper function to extract longitude from house cusp (handles both ZonalPosition and dict)
+    def get_longitude(cusp) -> float:
+        if hasattr(cusp, "longitude"):
+            return cusp.longitude
+        elif isinstance(cusp, dict) and "longitude" in cusp:
+            return float(cusp["longitude"])
+        elif isinstance(cusp, (int, float)):
+            return float(cusp)
+        else:
+            return 0.0
 
-    # Calculate house number based on sign offset from ASC's sign
-    house_number = ((planet_sign_index - asc_sign_index) % 12) + 1
+    # Check if this is Whole Sign house system
+    asc_sign_index = int(chart.ascendant.longitude // 30)
+    
+    # Check if all house cusps are at sign boundaries (Whole Sign)
+    is_whole_sign = True
+    for house_num in range(1, 13):
+        cusp = chart.houses.get(f"house_{house_num}")
+        if cusp:
+            lon = get_longitude(cusp)
+            # Check if cusp is at 0° of a sign (within small tolerance)
+            if abs(lon - int(lon // 30) * 30) > 0.01:
+                is_whole_sign = False
+                break
+
+    if is_whole_sign:
+        # For Whole Sign houses, House 1 starts at 0° of the Ascendant's sign
+        planet_sign_index = int(transit_longitude // 30)
+
+        # Calculate house number based on sign offset from ASC's sign
+        house_number = ((planet_sign_index - asc_sign_index) % 12) + 1
+    else:
+        # For non-Whole Sign systems, use the same logic as _find_planet_house
+        house_cusps = []
+        for i in range(1, 13):
+            cusp = chart.houses.get(f"house_{i}")
+            if cusp:
+                house_cusps.append((get_longitude(cusp), i))
+
+        # Sort by longitude
+        house_cusps.sort(key=lambda x: x[0])
+
+        # Find which house the planet falls in
+        for i, (cusp_lon, house_num) in enumerate(house_cusps):
+            next_cusp_lon = house_cusps[(i + 1) % len(house_cusps)][0]
+
+            if cusp_lon < next_cusp_lon:
+                if cusp_lon <= transit_longitude < next_cusp_lon:
+                    return house_num
+            else:
+                if transit_longitude >= cusp_lon or transit_longitude < next_cusp_lon:
+                    return house_num
+
+        # Fallback: if we didn't find a match, return 1
+        return 1
 
     return house_number
