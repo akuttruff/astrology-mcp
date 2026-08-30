@@ -1396,6 +1396,7 @@ def main():
                 GET_HOUSES_TOOL,
                 GET_CURRENT_TIME_TOOL,
                 CALCULATE_PLANET_ASPECT_TOOL,
+                SCAN_TRANSITS_TOOL,
             ]
 
         @server.call_tool()
