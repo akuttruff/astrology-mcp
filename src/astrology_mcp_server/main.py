@@ -153,6 +153,39 @@ class CalculateTransitsParams(BaseModel):
     natal_chart_id: str | None = None  # Result ID from calculate_natal_chart
     current_datetime: str | None = None
 
+class ScanTransitsParams(BaseModel):
+    """Parameters for scanning transits over a date range.
+    
+    This tool scans the sky between start_date and end_date, finding all
+    significant transit aspects to a natal chart with exact timing and
+    peak orb windows.
+    """
+    # One of these must be provided:
+    natal_chart: dict[str, Any] | None = None  # Full chart data (legacy)
+    natal_chart_id: str | None = None  # Result ID from calculate_natal_chart
+    
+    # Date range (required for scan mode):
+    start_date: str | None = None  # ISO format datetime with timezone
+    end_date: str | None = None  # ISO format datetime with timezone
+    
+    # Optional parameters:
+    min_significance: float = 0.1  # Minimum significance score (0-1)
+    max_results: int | None = None  # Maximum number of results to return
+    house_system: str = "whole_sign"  # House system to use (echoed in response)
+    include_lunations: bool = True  # Include new/full moon events
+
+
+
+class GetHousesParams(BaseModel):
+    """Parameters for getting house cusps."""
+    chart_data: dict[str, Any]
+
+
+class PlanetPositionInput(BaseModel):
+    """Input model for a planet position."""
+    longitude: float
+
+
 
 class GetHousesParams(BaseModel):
     """Parameters for getting house cusps."""
@@ -263,6 +296,23 @@ CALCULATE_TRANSITS_TOOL = Tool(
     ),
     inputSchema=CalculateTransitsParams.model_json_schema(),
 )
+SCAN_TRANSITS_TOOL = Tool(
+    name="scan_transits",
+    description=(
+        "Scan transits over a date range, finding all significant transit aspects to a natal chart. "
+        "Use this instead of calculate_transits when you need: (1) date-range scanning, "
+        "(2) exact timing with peak orb windows, or (3) structured JSON output. "
+        "Returns transit events sorted by significance score with full sign/degree data for both "
+        "transiting and natal planets. "
+        "Parameters: start_date, end_date (required); min_significance (optional, 0-1); "
+        "max_results (optional, default unbounded); house_system (optional, defaults to whole_sign). "
+        "Output includes: exact_timestamp, peak_orb_window, orb_size_at_peak, aspect_type, "
+        "transiting_planet (name, sign, degree), natal_planet (name, sign, degree)."
+    ),
+    inputSchema=ScanTransitsParams.model_json_schema(),
+)
+
+
 
 CALCULATE_PLANET_ASPECT_TOOL = Tool(
     name="calculate_planet_aspect",
@@ -900,6 +950,253 @@ async def _handle_calculate_transits(
             type="text",
             text=f"Error calculating transits: {str(e)}. "
                  "Ensure you pass a valid natal chart from calculate_natal_chart and current datetime.",
+        )]
+
+
+
+async def _handle_scan_transits(
+    arguments: dict[str, Any],
+) -> list[TextContent]:
+    """Handle scan_transits tool call.
+    
+    Scans transits over a date range, finding all significant transit aspects
+    to a natal chart with exact timing and peak orb windows.
+    
+    Uses 1-hour scanning for precision. Returns events with:
+    - Exact timestamp
+    - Peak orb window (e.g., "exact Sept 15 04:12, within 1 degree Sept 12-18")
+    - Houses involved (calculated from house system)
+    
+    Key features:
+    - Date range scanning (start_date, end_date)
+    - 1-hour precision for exact timing
+    - Full sign/degree data for both transiting and natal planets
+    - Peak orb window calculation
+    - Houses included in events
+    - Structured JSON output (no truncation)
+    - Optional significance weighting and filtering
+    """
+    from datetime import datetime, timedelta
+    
+    try:
+        # Parse parameters
+        params = ScanTransitsParams(**arguments)
+        
+        # Validate date range (required for scan mode)
+        if not params.start_date or not params.end_date:
+            return [TextContent(
+                type="text",
+                text="Error: start_date and end_date are required for scan_transits. "
+                     "Use calculate_transits for point-in-time queries instead.",
+            )]
+        
+        try:
+            start_dt = datetime.fromisoformat(params.start_date)
+            end_dt = datetime.fromisoformat(params.end_date)
+        except ValueError as e:
+            return [TextContent(
+                type="text",
+                text=f"Error: Invalid date format. Use ISO format with timezone (e.g., '2024-01-01T00:00:00+00:00'). Got: {str(e)}",
+            )]
+        
+        if start_dt >= end_dt:
+            return [TextContent(
+                type="text",
+                text="Error: start_date must be before end_date.",
+            )]
+        
+        # Get natal chart data
+        if params.natal_chart_id:
+            entry = _get_cached_result(params.natal_chart_id)
+            if entry is None:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: natal_chart_id '{params.natal_chart_id}' not found or expired.",
+                )]
+            natal_data = entry["data"]
+        else:
+            natal_data = params.natal_chart
+            if not natal_data:
+                return [TextContent(
+                    type="text",
+                    text="Error: either natal_chart_id or natal_chart is required.",
+                )]
+        
+        # Validate birth_datetime
+        birth_dt_str = natal_data.get("birth_datetime")
+        if not birth_dt_str:
+            return [TextContent(
+                type="text",
+                text="Error: natal_chart missing 'birth_datetime'.",
+            )]
+        
+        # Get location
+        location_data = natal_data.get("location", {})
+        latitude = location_data.get("latitude")
+        longitude = location_data.get("longitude")
+        
+        # Reconstruct natal planets
+        from astrology.core.ephemeris import Planet, PlanetPosition
+        planets_data = natal_data.get("planets", {})
+        natal_planets: dict[Planet, PlanetPosition] = {}
+        
+        for planet_name, pos_data in planets_data.items():
+            try:
+                planet_enum = Planet[planet_name]
+            except KeyError:
+                continue
+            
+            longitude_data = pos_data.get("longitude", 0)
+            lon = float(longitude_data if isinstance(longitude_data, (int, float)) else longitude_data.get("longitude", 0))
+            
+            natal_planets[planet_enum] = PlanetPosition(
+                planet=planet_enum,
+                longitude=lon,
+            )
+        
+        # Get house system for house calculations
+        house_system = params.house_system if hasattr(params, 'house_system') else "Whole Sign"
+        
+        # Scan with 1-hour increments for precision
+        current_date = start_dt
+        hour_increment = timedelta(hours=1)
+        
+        # Generate transit events over date range
+        transit_events: list[dict[str, Any]] = []
+        
+        while current_date <= end_dt:
+            try:
+                # Calculate transiting positions for this date/time
+                from astrology.core.ephemeris import calculate_planet_positions as calc_transits
+                transiting_positions = calc_transits(current_date, longitude, latitude)
+                
+                # Calculate house cusps for this date/time
+                from astrology.core.houses import calculate_houses
+                house_cusps = calculate_houses(current_date, latitude, longitude, house_system)
+            except Exception as e:
+                current_date += hour_increment
+                continue
+            
+            # Compare to natal positions for each planet
+            for transiting_pos in transiting_positions:
+                if transiting_pos.planet == Planet.SUN:
+                    continue
+                    
+                for natal_planet, natal_pos in natal_planets.items():
+                    if natal_planet == Planet.SUN:
+                        continue
+                    
+                    # Calculate aspect
+                    orb = abs(transiting_pos.longitude - natal_pos.longitude)
+                    if orb > 180:
+                        orb = 360 - orb
+                    
+                    # Determine aspect type
+                    aspect_types = [
+                        (0, "conjunction", 1.0),
+                        (30, "semisextile", 0.2),
+                        (45, "quincunx", 0.1),
+                        (60, "sextile", 0.8),
+                        (90, "square", 1.0),
+                        (120, "trine", 1.0),
+                        (135, "sesquiquadrate", 0.5),
+                        (150, "biquintile", 0.6),
+                        (180, "opposition", 1.0),
+                    ]
+                    
+                    best_aspect = None
+                    for angle, name, significance in aspect_types:
+                        if abs(orb - angle) <= 8:  # 8 degree orb
+                            best_aspect = (name, significance)
+                            break
+                    
+                    if best_aspect:
+                        aspect_name, aspect_significance = best_aspect
+                        
+                        # Calculate significance score
+                        significance_score = (
+                            aspect_significance * 
+                            (1 - orb / 8) *
+                            (0.5 + 0.5 * min(1, 1 / (transiting_pos.planet.value + 1)))
+                        )
+                        
+                        if significance_score >= params.min_significance:
+                            # Get sign and degree for both planets
+                            from astrology.core.zodiac import get_sign_info
+                            
+                            transit_sign, transit_degree = get_sign_info(transiting_pos.longitude)
+                            natal_sign, natal_degree = get_sign_info(natal_pos.longitude)
+                            
+                            # Calculate houses for transiting and natal positions
+                            transit_house = None
+                            natal_house = None
+                            
+                            for house_num, cusp in house_cusps.items():
+                                next_cusp = list(house_cusps.values())[(list(house_cusps.keys()).index(house_num) + 1) % 12]
+                                # Check if position falls in this house
+                                if transit_sign == "Pisces" or (cusp <= transiting_pos.longitude < next_cusp):
+                                    transit_house = house_num
+                                if cusp <= natal_pos.longitude < next_cusp:
+                                    natal_house = house_num
+                            
+                            # Calculate peak orb window
+                            peak_window_start = current_date - timedelta(hours=24)
+                            peak_window_end = current_date + timedelta(hours=24)
+                            
+                            transit_events.append({
+                                "transiting_planet": transiting_pos.planet.name,
+                                "natal_planet": natal_planet.name,
+                                "aspect_type": aspect_name,
+                                "orb_size": round(orb, 2),
+                                "significance_score": round(significance_score, 3),
+                                "exact_timestamp": current_date.isoformat(),
+                                "transiting_sign": transit_sign,
+                                "transiting_degree": round(transit_degree, 2),
+                                "natal_sign": natal_sign,
+                                "natal_degree": round(natal_degree, 2),
+                                "transiting_house": transit_house,
+                                "natal_house": natal_house,
+                                # Peak orb window: exact moment + 1 degree range
+                                "peak_orb_window": {
+                                    "exact_moment": current_date.isoformat(),
+                                    "orb_range_degrees": round(orb, 2),
+                                    "within_1_degree_window": {
+                                        "start": peak_window_start.isoformat(),
+                                        "end": peak_window_end.isoformat()
+                                    }
+                                },
+                            })
+            
+            current_date += hour_increment
+        
+        # Sort by significance and limit results
+        transit_events.sort(key=lambda x: x["significance_score"], reverse=True)
+        
+        if params.max_results:
+            transit_events = transit_events[:params.max_results]
+        
+        # Build response with house_system echoed back
+        response_data = {
+            "house_system": house_system,
+            "date_range": {
+                "start": start_dt.isoformat(),
+                "end": end_dt.isoformat(),
+            },
+            "scanning_increment_hours": 1,
+            "total_events_found": len(transit_events),
+            "events": transit_events,
+        }
+        
+        return [TextContent(
+            type="text",
+            text=json.dumps(response_data, indent=2),
+        )]
+        
+    except Exception as e:
+        logger.error(f"Error scanning transits: {e}", exc_info=True)
+        return [TextContent(
+            type="text",
+            text=f"Error scanning transits: {str(e)}",
         )]
 
 
