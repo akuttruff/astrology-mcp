@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-astrology-mcp = "astrology_mcp_server.main:main"
+astrology-mcp = "astrology_mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

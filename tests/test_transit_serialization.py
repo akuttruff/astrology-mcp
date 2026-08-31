@@ -4,9 +4,9 @@ import asyncio
 from datetime import datetime
 import pytest
 
-from src.astrology_mcp_server.main import (
-    _handle_calculate_transits,
-    _handle_calculate_natal_chart,
+from astrology_mcp_server import (
+    handle_calculate_transits,
+    handle_calculate_natal_chart,
 )
 from astrology.charts.chart import calculate_natal_chart
 from astrology.core.ephemeris import Planet, ZonalPosition
@@ -44,7 +44,7 @@ class TestTransitSerialization:
             "current_datetime": "2026-04-10T23:28:30Z",
         }
 
-        result = asyncio.run(_handle_calculate_transits(arguments))
+        result = asyncio.run(handle_calculate_transits(arguments))
 
         # Verify we got a valid response (not an error)
         assert len(result) == 1
@@ -93,7 +93,7 @@ class TestTransitSerialization:
             "current_datetime": "2026-04-10T23:28:30Z",
         }
 
-        result = asyncio.run(_handle_calculate_transits(arguments))
+        result = asyncio.run(handle_calculate_transits(arguments))
 
         # Verify we got a valid response
         assert len(result) == 1
@@ -121,7 +121,7 @@ class TestTransitSerialization:
             "current_datetime": "2026-04-10T23:28:30Z",
         }
 
-        result = asyncio.run(_handle_calculate_transits(arguments))
+        result = asyncio.run(handle_calculate_transits(arguments))
 
         # Verify we got a valid response
         assert len(result) == 1
@@ -145,7 +145,7 @@ class TestTransitSerialization:
             "current_datetime": "2026-04-10T23:28:30Z",
         }
 
-        result = asyncio.run(_handle_calculate_transits(arguments))
+        result = asyncio.run(handle_calculate_transits(arguments))
 
         # Verify we got a valid response (planet lookup converts to uppercase)
         assert len(result) == 1
@@ -193,7 +193,7 @@ class TestTransitWithActualChart:
             "current_datetime": "2026-04-10T23:28:30Z",
         }
 
-        result = asyncio.run(_handle_calculate_transits(arguments))
+        result = asyncio.run(handle_calculate_transits(arguments))
 
         # Verify we got a valid response
         assert len(result) == 1
@@ -221,7 +221,7 @@ class TestTransitEdgeCases:
             "current_datetime": "2026-04-10T23:28:30Z",
         }
 
-        result = asyncio.run(_handle_calculate_transits(arguments))
+        result = asyncio.run(handle_calculate_transits(arguments))
 
         # Should handle gracefully even with minimal data
         assert len(result) == 1
@@ -239,7 +239,7 @@ class TestTransitEdgeCases:
             "current_datetime": "2026-04-10T23:28:30Z",
         }
 
-        result = asyncio.run(_handle_calculate_transits(arguments))
+        result = asyncio.run(handle_calculate_transits(arguments))
 
         # Should handle gracefully even with no planets
         assert len(result) == 1
@@ -279,7 +279,7 @@ class TestTransitHouseCalculation:
             "current_datetime": "2022-07-01T00:00:00+00:00",
         }
 
-        result = asyncio.run(_handle_calculate_transits(arguments))
+        result = asyncio.run(handle_calculate_transits(arguments))
         
         # Verify the response contains house info and Pluto is in House 2
         content = result[0]
@@ -308,7 +308,7 @@ class TestTransitHouseCalculation:
             "current_datetime": "2022-07-01T00:00:00+00:00",
         }
 
-        result = asyncio.run(_handle_calculate_transits(arguments))
+        result = asyncio.run(handle_calculate_transits(arguments))
         
         content = result[0]
         # Verify output format includes natal planet names
@@ -320,7 +320,7 @@ class TestTransitHouseCalculation:
     def test_house_positions_differ_for_past_and_present_dates(self):
         """Verify the same planet appears in different houses for different dates."""
         # Get transit report for July 2022 (Pluto at ~27° Capricorn)
-        result_2022 = asyncio.run(_handle_calculate_transits({
+        result_2022 = asyncio.run(handle_calculate_transits({
             "natal_chart": {
                 "birth_datetime": "1984-05-10T20:44:00-07:00",
                 "location": {"latitude": 34.0215, "longitude": -118.4673},
@@ -335,7 +335,7 @@ class TestTransitHouseCalculation:
         }))
 
         # Get transit report for current time
-        result_now = asyncio.run(_handle_calculate_transits({
+        result_now = asyncio.run(handle_calculate_transits({
             "natal_chart": {
                 "birth_datetime": "1984-05-10T20:44:00-07:00",
                 "location": {"latitude": 34.0215, "longitude": -118.4673},

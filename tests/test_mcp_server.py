@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.astrology_mcp_server.main import (
+from astrology_mcp_server import (
     CALCULATE_ASPECTS_TOOL,
     CALCULATE_NATAL_CHART_TOOL,
     CALCULATE_PLANET_ASPECT_TOOL,
@@ -12,6 +12,61 @@ from src.astrology_mcp_server.main import (
     GET_PLANET_POSITIONS_TOOL,
     GET_RESULT_TOOL,
 )
+
+
+
+def test_server_module_loads():
+    """Verify the server module can be imported without errors.
+    
+    This test ensures that the MCP server loads correctly and doesn't
+    encounter import errors like 'module has no attribute main'.
+    
+    Regression test for: commit 75a3c2a and its revert which removed
+    the main entry point from the server module.
+    """
+    # This should not raise any import errors
+    import astrology_mcp_server
+    
+    # Verify the main module is accessible (as a submodule)
+    from astrology_mcp_server import main
+    
+    # Verify the main function exists in the module
+    # When importing 'main', we get the function directly (not the module)
+    assert callable(main), "'main' should be callable"
+    
+    # Also verify we can access it via the full module path
+    import astrology_mcp_server.main as main_module
+    assert hasattr(main_module, 'main'), "main module should have 'main' function"
+    assert callable(main_module.main), "'main' attribute should be callable"
+
+
+def test_server_entry_point():
+    """Verify the server entry point is correctly configured.
+    
+    This ensures that pyproject.toml entry point 'astrology_mcp_server:main'
+    correctly references the main() function.
+    """
+    import importlib
+    
+    # Import the main submodule (as pyproject.toml does via astrology_mcp_server.main:main)
+    # Note: The entry point uses 'astrology_mcp_server:main' which refers to the function
+    # in __init__.py, but we test both paths for completeness
+    
+    # Test 1: Import the package and verify main function exists
+    server_package = importlib.import_module('astrology_mcp_server')
+    assert hasattr(server_package, 'main'), "astrology_mcp_server should have 'main' function"
+    
+    # The 'main' attribute could be the function or module, so check if it's callable
+    # If it's a module, we need to check inside it
+    main_attr = server_package.main
+    if callable(main_attr):
+        # It's the function directly
+        assert main_attr.__name__ == 'main', "'main' should be a function named 'main'"
+    else:
+        # It's the module, check for main function inside
+        assert hasattr(main_attr, 'main'), "main module should have 'main' function"
+        main_func = getattr(main_attr, 'main')
+        assert callable(main_func), "'main.main' should be callable"
 
 
 def test_all_tools_are_defined():
@@ -174,7 +229,7 @@ def test_calculate_transits_with_minimal_planet_data():
     Where LLMs may send serialized positions with only 'longitude' field.
     """
     import asyncio
-    from src.astrology_mcp_server.main import _handle_calculate_transits
+    from astrology_mcp_server import handle_calculate_transits
 
     # Minimal natal chart data with only longitude values (no sign, degree_in_sign, etc.)
     minimal_natal_data = {
@@ -204,7 +259,7 @@ def test_calculate_transits_with_minimal_planet_data():
     }
 
     # This should not raise an error about ZonalPosition arguments
-    result = asyncio.run(_handle_calculate_transits(arguments))
+    result = asyncio.run(handle_calculate_transits(arguments))
 
     # Verify we got a valid response (not an error)
     assert len(result) == 1
@@ -220,7 +275,7 @@ def test_calculate_transits_with_minimal_planet_data():
 def test_calculate_transits_with_full_zonalposition_data():
     """Verify transit calculation handles full ZonalPosition data (with sign, degree)."""
     import asyncio
-    from src.astrology_mcp_server.main import _handle_calculate_transits
+    from astrology_mcp_server import handle_calculate_transits
 
     # Full natal chart data with complete ZonalPosition info
     full_natal_data = {
@@ -261,7 +316,7 @@ def test_calculate_transits_with_full_zonalposition_data():
         "current_datetime": "2026-04-10T23:28:30Z",
     }
 
-    result = asyncio.run(_handle_calculate_transits(arguments))
+    result = asyncio.run(handle_calculate_transits(arguments))
 
     # Verify we got a valid response
     assert len(result) == 1
@@ -279,7 +334,7 @@ def test_house_positions_serialized_correctly():
     import json
     from datetime import datetime, timezone, timedelta
     from astrology.charts.chart import calculate_natal_chart
-    from src.astrology_mcp_server.main import _serialize_chart
+    from astrology_mcp_server import _serialize_chart
 
     # Calculate chart for the user's birth data
     birth_datetime = datetime(1984, 5, 10, 20, 44, tzinfo=timezone(timedelta(hours=-7)))
@@ -321,7 +376,7 @@ def test_house_positions_serialized_correctly():
 def test_calculate_natal_chart_returns_result_id_and_preview():
     """Verify calculate_natal_chart returns result_id and preview for lazy loading."""
     import asyncio
-    from src.astrology_mcp_server.main import _handle_calculate_natal_chart
+    from astrology_mcp_server import handle_calculate_natal_chart
 
     arguments = {
         "birth_datetime": "1984-05-10T20:44:00-07:00",
@@ -329,7 +384,7 @@ def test_calculate_natal_chart_returns_result_id_and_preview():
         "longitude": -118.45,
     }
 
-    result = asyncio.run(_handle_calculate_natal_chart(arguments))
+    result = asyncio.run(handle_calculate_natal_chart(arguments))
 
     # Verify we got a valid response
     assert len(result) == 1
@@ -362,9 +417,9 @@ def test_calculate_natal_chart_returns_result_id_and_preview():
 def test_get_result_retrieves_cached_chart():
     """Verify get_result retrieves cached chart data by result_id."""
     import asyncio
-    from src.astrology_mcp_server.main import (
-        _handle_calculate_natal_chart,
-        _handle_get_result,
+    from astrology_mcp_server import (
+        handle_calculate_natal_chart,
+        handle_get_result,
     )
 
     # First, calculate a chart to get a result_id
@@ -374,14 +429,14 @@ def test_get_result_retrieves_cached_chart():
         "longitude": -118.45,
     }
     
-    calc_result = asyncio.run(_handle_calculate_natal_chart(calc_args))
+    calc_result = asyncio.run(handle_calculate_natal_chart(calc_args))
     import json as json_module
     calc_data = json_module.loads(calc_result[0].text)
     result_id = calc_data["result_id"]
 
     # Now retrieve the full chart using get_result
     get_args = {"result_id": result_id}
-    get_result = asyncio.run(_handle_get_result(get_args))
+    get_result = asyncio.run(handle_get_result(get_args))
 
     # Verify we got the full chart data
     assert len(get_result) == 1
@@ -407,10 +462,10 @@ def test_get_result_retrieves_cached_chart():
 def test_get_result_returns_error_for_invalid_id():
     """Verify get_result returns error for non-existent result_id."""
     import asyncio
-    from src.astrology_mcp_server.main import _handle_get_result
+    from astrology_mcp_server import handle_get_result
 
     get_args = {"result_id": "nonexistent_12345"}
-    result = asyncio.run(_handle_get_result(get_args))
+    result = asyncio.run(handle_get_result(get_args))
 
     # Verify we got an error response
     assert len(result) == 1
@@ -421,9 +476,9 @@ def test_get_result_returns_error_for_invalid_id():
 def test_calculate_transits_with_natal_chart_id():
     """Verify calculate_transits works with natal_chart_id parameter."""
     import asyncio
-    from src.astrology_mcp_server.main import (
-        _handle_calculate_natal_chart,
-        _handle_calculate_transits,
+    from astrology_mcp_server import (
+        handle_calculate_natal_chart,
+        handle_calculate_transits,
     )
 
     # Calculate a chart to get result_id
@@ -433,7 +488,7 @@ def test_calculate_transits_with_natal_chart_id():
         "longitude": -118.45,
     }
     
-    calc_result = asyncio.run(_handle_calculate_natal_chart(calc_args))
+    calc_result = asyncio.run(handle_calculate_natal_chart(calc_args))
     import json as json_module
     calc_data = json_module.loads(calc_result[0].text)
     result_id = calc_data["result_id"]
@@ -444,7 +499,7 @@ def test_calculate_transits_with_natal_chart_id():
         "current_datetime": "2026-04-13T12:00:00Z",
     }
     
-    transit_result = asyncio.run(_handle_calculate_transits(transit_args))
+    transit_result = asyncio.run(handle_calculate_transits(transit_args))
 
     # Verify we got a valid transit report
     assert len(transit_result) == 1
@@ -457,14 +512,14 @@ def test_calculate_transits_with_natal_chart_id():
 def test_get_planet_positions_returns_result_id_and_preview():
     """Verify get_planet_positions returns result_id and preview."""
     import asyncio
-    from src.astrology_mcp_server.main import _handle_get_planet_positions
+    from astrology_mcp_server import handle_get_planet_positions
 
     arguments = {
         "datetime": "2026-04-13T12:00:00Z",
         "planets": ["SUN", "MOON", "MERCURY"],
     }
 
-    result = asyncio.run(_handle_get_planet_positions(arguments))
+    result = asyncio.run(handle_get_planet_positions(arguments))
 
     # Verify we got a valid response
     assert len(result) == 1
@@ -494,9 +549,9 @@ def test_get_planet_positions_returns_result_id_and_preview():
 def test_get_result_retrieves_planet_positions():
     """Verify get_result retrieves cached planet positions by result_id."""
     import asyncio
-    from src.astrology_mcp_server.main import (
-        _handle_get_planet_positions,
-        _handle_get_result,
+    from astrology_mcp_server import (
+        handle_get_planet_positions,
+        handle_get_result,
     )
 
     # First, get planet positions to get a result_id
@@ -505,14 +560,14 @@ def test_get_result_retrieves_planet_positions():
         "planets": ["SUN", "MOON"],
     }
     
-    pos_result = asyncio.run(_handle_get_planet_positions(pos_args))
+    pos_result = asyncio.run(handle_get_planet_positions(pos_args))
     import json as json_module
     pos_data = json_module.loads(pos_result[0].text)
     result_id = pos_data["result_id"]
 
     # Now retrieve the full positions using get_result
     get_args = {"result_id": result_id}
-    get_result = asyncio.run(_handle_get_result(get_args))
+    get_result = asyncio.run(handle_get_result(get_args))
 
     # Verify we got the full positions data
     assert len(get_result) == 1
@@ -535,7 +590,7 @@ def test_get_result_retrieves_planet_positions():
 def test_calculate_aspects_returns_result_id_and_preview():
     """Verify calculate_aspects returns result_id and preview."""
     import asyncio
-    from src.astrology_mcp_server.main import _handle_calculate_aspects
+    from astrology_mcp_server import handle_calculate_aspects
 
     # Use a more complete chart for testing (with full planet data)
     # Include planets that form major aspects to ensure we get aspects
@@ -557,7 +612,7 @@ def test_calculate_aspects_returns_result_id_and_preview():
         "chart_data": chart_data,
     }
 
-    result = asyncio.run(_handle_calculate_aspects(arguments))
+    result = asyncio.run(handle_calculate_aspects(arguments))
 
     # Verify we got a valid response
     assert len(result) == 1, f"Expected 1 result, got {len(result)}"
@@ -588,9 +643,9 @@ def test_calculate_aspects_returns_result_id_and_preview():
 def test_get_result_retrieves_aspects():
     """Verify get_result retrieves cached aspects by result_id."""
     import asyncio
-    from src.astrology_mcp_server.main import (
-        _handle_calculate_aspects,
-        _handle_get_result,
+    from astrology_mcp_server import (
+        handle_calculate_aspects,
+        handle_get_result,
     )
 
     # Use a more complete chart for testing with planets that form aspects
@@ -612,7 +667,7 @@ def test_get_result_retrieves_aspects():
         "chart_data": chart_data,
     }
     
-    aspects_result = asyncio.run(_handle_calculate_aspects(aspects_args))
+    aspects_result = asyncio.run(handle_calculate_aspects(aspects_args))
     import json as json_module
     try:
         aspects_data = json_module.loads(aspects_result[0].text)
@@ -623,7 +678,7 @@ def test_get_result_retrieves_aspects():
 
     # Now retrieve the full aspects using get_result
     get_args = {"result_id": result_id}
-    get_result = asyncio.run(_handle_get_result(get_args))
+    get_result = asyncio.run(handle_get_result(get_args))
 
     # Verify we got the full aspects data
     assert len(get_result) == 1
