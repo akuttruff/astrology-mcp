@@ -75,20 +75,30 @@ def _build_chart_preview(chart: NatalChart) -> dict[str, Any]:
     # Get planetary positions for preview
     for planet, position in chart.planets.items():
         if planet.name in ["SUN", "MOON"]:
+            sign_name = position.zonal.sign_name
+            degree = round(position.zonal.degree_in_sign, 2)
+            
             preview[planet.name.lower()] = {
-                "sign": position.zonal.sign_name,
-                "degree": round(position.zonal.degree_in_sign, 2),
+                "sign": sign_name,
+                "degree": degree,
             }
+            
+            # Add sun_sign/moon_sign for backward compatibility with tests
+            if planet.name == "SUN":
+                preview["sun_sign"] = sign_name
+            elif planet.name == "MOON":
+                preview["moon_sign"] = sign_name
     
-    # Get ascendant
+    # Get ascendant (rising sign)
     if chart.ascendant:
         preview["ascendant"] = {
             "sign": chart.ascendant.sign_name,
             "degree": round(chart.ascendant.degree_in_sign, 2),
         }
+        # Add rising_sign for backward compatibility
+        preview["rising_sign"] = chart.ascendant.sign_name
     
     return preview
-
 
 def _serialize_zonal(zonal: ZonalPosition | None) -> dict | None:
     """Serialize a ZonalPosition to a dictionary.

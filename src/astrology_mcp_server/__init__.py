@@ -32,6 +32,9 @@ except ImportError:
         "MCP server not found. Install with: pip install mcp"
     )
 
+# Import serializers functions for testing
+from .serializers import _serialize_chart, _deserialize_zonal
+
 # Import handlers
 from .handlers import (
     handle_calculate_natal_chart,
