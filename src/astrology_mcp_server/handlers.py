@@ -79,8 +79,13 @@ async def handle_calculate_natal_chart(arguments: dict[str, Any]) -> list[TextCo
         full_result = _serialize_chart(chart)
         
         # Generate result ID and create preview
+        # Include birth_datetime, location, and timezone for fully unique keys
         result_id = _generate_result_id(
-            {"birth_datetime": birth_dt_str, "location": (params.latitude, params.longitude)},
+            {
+                "birth_datetime": birth_dt_str,
+                "location": (params.latitude, params.longitude),
+                "timezone": getattr(params, 'timezone', 'unknown'),
+            },
             "nc"
         )
         
@@ -126,7 +131,7 @@ async def handle_get_result(arguments: dict[str, Any]) -> list[TextContent]:
             if reason == "expired":
                 return [TextContent(
                     type="text",
-                    text=f"Error: result_id '{result_id}' has expired (TTL: 1 hour). Call the compute tool again to generate a new result.",
+                    text=f"Error: result_id '{result_id}' has expired (TTL: 1 week). Call the compute tool again to generate a new result.",
                 )]
             else:
                 return [TextContent(
@@ -259,25 +264,50 @@ async def handle_get_current_time(arguments: dict[str, Any]) -> list[TextContent
 
 async def handle_calculate_aspects(arguments: dict[str, Any]) -> list[TextContent]:
     """Handle calculate_aspects tool call.
+
+    Accepts either chart_data (full data) OR result_id (cached result).
+    Using result_id is recommended as it keeps context lean.
     
     Returns result_id and preview. The full aspects data is cached
     and can be retrieved later using get_result(result_id).
-    
+
     Preview contains a summary of the top aspects for quick decisions.
     """
     try:
-        # Get chart data from arguments
-        chart_data = arguments.get("chart_data", {})
+        # Check if result_id is provided (new pattern)
+        result_id = arguments.get("result_id")
         
-        if not chart_data:
-            return [TextContent(
-                type="text",
-                text="Error: chart_data is required. Use calculate_natal_chart first.",
-            )]
-        
+        if result_id:
+            # Retrieve full chart data from cache
+            entry, reason = _get_cached_result_with_reason(result_id)
+            if entry is None:
+                if reason == "expired":
+                    return [TextContent(
+                        type="text",
+                        text=f"Error: result_id '{result_id}' has expired (TTL: 1 week). "
+                             "Please recalculate with calculate_natal_chart, or use chart_data with full data.",
+                    )]
+                else:
+                    return [TextContent(
+                        type="text",
+                        text=f"Error: result_id '{result_id}' not found. "
+                             "Please verify the ID or calculate a new chart with calculate_natal_chart.",
+                    )]
+            chart_data = entry["data"]
+        else:
+            # Legacy: use full chart data from arguments
+            chart_data = arguments.get("chart_data", {})
+            
+            if not chart_data:
+                return [TextContent(
+                    type="text",
+                    text="Error: either result_id or chart_data is required. "
+                         "Use calculate_natal_chart to get a result_id, or pass full chart data.",
+                )]
+
         # Reconstruct planet positions from chart data
         planets_data = chart_data.get("planets", {})
-        
+
         if not planets_data:
             return [TextContent(
                 type="text",
@@ -303,7 +333,7 @@ async def handle_calculate_aspects(arguments: dict[str, Any]) -> list[TextConten
                     latitude=pos_data.get("latitude", 0),
                     distance=pos_data.get("distance", 1.0),
                     retrograde=pos_data.get("retrograde", False),
-                    motion_speed=0.0,
+                    motion_speed=pos_data.get("motion_speed", 0.0),  # Use serialized value or default to 0
                 )
             except KeyError:
                 continue
@@ -406,7 +436,7 @@ async def handle_calculate_transits(arguments: dict[str, Any]) -> list[TextConte
                 if reason == "expired":
                     return [TextContent(
                         type="text",
-                        text=f"Error: natal_chart_id '{natal_chart_id}' has expired (TTL: 1 hour). "
+                        text=f"Error: natal_chart_id '{natal_chart_id}' has expired (TTL: 1 week). "
                              "Please recalculate with calculate_natal_chart, or use natal_chart with full data.",
                     )]
                 else:
@@ -488,7 +518,7 @@ async def handle_calculate_transits(arguments: dict[str, Any]) -> list[TextConte
                 latitude=pos_data.get("latitude", 0.0),
                 distance=pos_data.get("distance", 1.0),
                 retrograde=pos_data.get("retrograde", False),
-                motion_speed=0.0,  # Default to 0 if not provided
+                motion_speed=pos_data.get("motion_speed", 0.0),  # Use serialized value or default to 0
             )
         
         # Add angles (ascendant, midheaven) if present
@@ -505,7 +535,7 @@ async def handle_calculate_transits(arguments: dict[str, Any]) -> list[TextConte
                 latitude=0.0,
                 distance=1.0,
                 retrograde=False,
-                motion_speed=0.0,
+                motion_speed=asc_data.get("motion_speed", 0.0) if isinstance(asc_data, dict) else 0.0,
             )
         
         if "midheaven" in angles and Planet.MC not in natal_planets:
@@ -520,7 +550,7 @@ async def handle_calculate_transits(arguments: dict[str, Any]) -> list[TextConte
                 latitude=0.0,
                 distance=1.0,
                 retrograde=False,
-                motion_speed=0.0,
+                motion_speed=mc_data.get("motion_speed", 0.0) if isinstance(mc_data, dict) else 0.0,
             )
         
         # Reconstruct house cusps from serialized data
@@ -679,7 +709,7 @@ async def handle_scan_transits(arguments: dict[str, Any]) -> list[TextContent]:
                 if reason == "expired":
                     return [TextContent(
                         type="text",
-                        text=f"Error: natal_chart_id '{params.natal_chart_id}' has expired (TTL: 1 hour). "
+                        text=f"Error: natal_chart_id '{params.natal_chart_id}' has expired (TTL: 1 week). "
                              "Please recalculate the natal chart with calculate_natal_chart.",
                     )]
                 else:
@@ -729,7 +759,7 @@ async def handle_scan_transits(arguments: dict[str, Any]) -> list[TextContent]:
                 latitude=pos_data.get("latitude", 0.0),
                 distance=pos_data.get("distance", 1.0),
                 retrograde=pos_data.get("retrograde", False),
-                motion_speed=0.0,  # Default to 0 if not provided
+                motion_speed=pos_data.get("motion_speed", 0.0),  # Use serialized value or default to 0
             )
 
         # Add angles (ascendant, midheaven) if present
@@ -746,7 +776,7 @@ async def handle_scan_transits(arguments: dict[str, Any]) -> list[TextContent]:
                 latitude=0.0,
                 distance=1.0,
                 retrograde=False,
-                motion_speed=0.0,
+                motion_speed=pos_data.get("motion_speed", 0.0),  # Use serialized value or default to 0
             )
 
         if "midheaven" in angles and Planet.MC not in natal_planets:
@@ -761,7 +791,7 @@ async def handle_scan_transits(arguments: dict[str, Any]) -> list[TextContent]:
                 latitude=0.0,
                 distance=1.0,
                 retrograde=False,
-                motion_speed=0.0,
+                motion_speed=pos_data.get("motion_speed", 0.0),  # Use serialized value or default to 0
             )
 
         # Get house system for house calculations

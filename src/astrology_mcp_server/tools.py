@@ -141,15 +141,17 @@ CALCULATE_ASPECTS_TOOL = Tool(
     name="calculate_aspects",
     description=(
         "Calculate major aspects between planets in a natal chart. "
-        "Input: chart_data from calculate_natal_chart. "
+        "You can pass either: (1) result_id from calculate_natal_chart for lean context, or "
+        "(2) chart_data with full chart data (legacy). "
+        "When using result_id, the full chart is fetched from cache before calculating aspects. "
         "Returns: list of aspects with planet names, aspect type, orb, and direction."
     ),
     inputSchema={
         "type": "object",
         "properties": {
+            "result_id": {"type": "string", "description": "Result ID from calculate_natal_chart"},
             "chart_data": {"type": "object", "description": "Full chart data from calculate_natal_chart"},
         },
-        "required": ["chart_data"],
     },
 )
 

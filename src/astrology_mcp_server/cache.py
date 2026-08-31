@@ -13,7 +13,7 @@ from threading import Lock
 
 
 # Result cache configuration
-RESULT_CACHE_TTL_SECONDS = 3600  # 1 hour
+RESULT_CACHE_TTL_SECONDS = 604800  # 1 week (7 days) for same birthdate/location/timezone
 
 # In-memory cache for tool results
 # Format: { result_id: { "data": ..., "created_at": timestamp, "preview": ... } }
@@ -40,8 +40,9 @@ def _generate_result_id(payload: dict[str, Any], prefix: str) -> str:
         A deterministic hash string starting with the prefix
     """
     # Create a hash from the payload to get consistent IDs for same inputs
+    # Use sort_keys=True to ensure deterministic ordering
     payload_str = json.dumps(payload, sort_keys=True, default=str)
-    hash_digest = hashlib.sha256(payload_str.encode()).hexdigest()[:8]
+    hash_digest = hashlib.sha256(payload_str.encode()).hexdigest()[:12]  # Increased from 8 to 12 chars
     return f"{prefix}_{hash_digest}"
 
 

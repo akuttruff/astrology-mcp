@@ -42,6 +42,7 @@ def _serialize_chart(chart: NatalChart) -> dict[str, Any]:
             "latitude": position.latitude,
             "distance": round(position.distance, 4),
             "retrograde": position.retrograde,
+            "motion_speed": round(position.motion_speed, 6),  # Degrees per day
         }
     
     # Add house positions for each planet
