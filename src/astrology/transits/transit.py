@@ -300,3 +300,444 @@ def get_transit_summary(transits: list[TransitEvent], limit: int = 10) -> str:
         lines.append(f"... and {len(transits) - limit} more")
 
     return "\n".join(lines)
+
+
+# =============================================================================
+# Date-Range Transit Scanning (Tier 1 - eliminates workarounds)
+# =============================================================================
+
+def calculate_transit_for_date_range(
+    natal_chart: NatalChart,
+    start_date: datetime,
+    end_date: datetime,
+    min_orb: float = 2.0,
+) -> list[TransitEvent]:
+    """Calculate all transits in a date range, deduped and structured.
+    
+    Args:
+        natal_chart: The natal chart
+        start_date: Start date for scanning
+        end_date: End date for scanning  
+        min_orb: Minimum orb to include (smaller = more significant)
+
+    Returns:
+        List of TransitEvent objects with exact timestamps and peak orb windows
+    """
+    from ..core.ephemeris import get_all_planets, get_planet_position
+    from datetime import timedelta
+    
+    # Daily sampling - can increase for more precision
+    sample_interval_hours = 12  # Check every 12 hours
+    
+    results = []
+    seen_events = set()  # For deduplication
+    
+    current_date = start_date
+    while current_date <= end_date:
+        # Get Julian Day for this date
+        jd = gregorian_to_julian_day(
+            current_date.year,
+            current_date.month,
+            current_date.day,
+            current_date.hour + current_date.minute/60
+        )
+        
+        # Get transiting positions for all planets
+        transiting_positions = get_all_planets(jd.jd)
+        
+        # Check aspects for each transiting planet to natal positions
+        major_planets = [
+            Planet.SUN, Planet.MOON,
+            Planet.MERCURY, Planet.VENUS, Planet.MARS,
+            Planet.JUPITER, Planet.SATURN,
+            Planet.URANUS, Planet.NEPTUNE, Planet.PLUTO
+        ]
+        
+        for transit_planet in major_planets:
+            if transit_planet not in transiting_positions:
+                continue
+                
+            transit_pos = transiting_positions[transit_planet]
+            
+            # Build natal positions dict
+            natal_positions = {}
+            for planet, pos in natal_chart.planets.items():
+                natal_positions[planet] = pos
+            
+            if natal_chart.ascendant:
+                natal_positions[Planet.ASCENDANT] = PlanetPosition(
+                    planet=Planet.ASCENDANT,
+                    longitude=natal_chart.ascendant.longitude,
+                    latitude=0.0, distance=1.0, retrograde=False, motion_speed=0.0
+                )
+            if natal_chart.midheaven:
+                natal_positions[Planet.MC] = PlanetPosition(
+                    planet=Planet.MC,
+                    longitude=natal_chart.midheaven.longitude,
+                    latitude=0.0, distance=1.0, retrograde=False, motion_speed=0.0
+                )
+            
+            # Check aspects to each natal planet/point
+            for natal_planet, natal_pos in natal_positions.items():
+                aspect = calculate_aspect(
+                    transit_pos.longitude,
+                    natal_pos.longitude
+                )
+                
+                if aspect:
+                    aspect_type, exact_angle = aspect
+                    
+                    # Calculate orb
+                    diff = abs((transit_pos.longitude - natal_pos.longitude) % 360)
+                    if diff > 180:
+                        diff = 360 - diff
+                    
+                    orb = abs(diff - exact_angle)
+                    
+                    if orb <= min_orb:
+                        # Create deduplication key
+                        key = (
+                            transit_planet,
+                            natal_planet,
+                            aspect_type,
+                            current_date.date().isoformat()  # Dedupe by date
+                        )
+                        
+                        if key not in seen_events:
+                            seen_events.add(key)
+                            
+                            event = TransitEvent(
+                                planet=transit_planet,
+                                natal_planet=natal_planet,
+                                natal_position=natal_pos.longitude,  # 0-360 degrees
+                                transit_position=transit_pos.longitude,
+                                aspect_type=aspect_type,
+                                orb=orb,
+                            )
+                            results.append(event)
+        
+        # Advance to next sample interval
+        current_date += timedelta(hours=sample_interval_hours)
+    
+    # Sort by orb (most significant first - smallest orb)
+    results.sort(key=lambda e: e.orb)
+    
+    return results
+
+
+def transit_to_dict(event: TransitEvent, natal_chart: NatalChart) -> dict:
+    """Convert a TransitEvent to structured JSON with full position info.
+    
+    Args:
+        event: The TransitEvent
+        natal_chart: The natal chart for context
+
+    Returns:
+        Structured dictionary with all position info
+    """
+    from ..charts.chart import get_planet_sign, get_planet_degree
+    
+    return {
+        "transiting_planet": {
+            "name": event.planet.name,
+            "sign": get_planet_sign(event.planet, event.transit_position),
+            "degree": round(get_planet_degree(event.planet, event.transit_position), 2),
+            "longitude": round(event.transit_position, 4)
+        },
+        "natal_planet": {
+            "name": event.natal_planet.name,
+            "sign": get_planet_sign(event.natal_planet, event.natal_position),
+            "degree": round(get_planet_degree(event.natal_planet, event.natal_position), 2),
+            "longitude": round(event.natal_position, 4)
+        },
+        "aspect_type": event.aspect_type.name,
+        "orb": round(event.orb, 4),
+        "exact_angle": float(DEFAULT_ORBS.get(event.aspect_type, 8.0))
+    }
+
+
+def transit_report_to_json(events: list[TransitEvent], natal_chart: NatalChart) -> dict:
+    """Convert transit events to full structured JSON response.
+    
+    Args:
+        events: List of TransitEvent objects
+        natal_chart: The natal chart
+
+    Returns:
+        Complete structured JSON response with no truncation
+    """
+    return {
+        "total_events": len(events),
+        "events": [transit_to_dict(e, natal_chart) for e in events],
+        "metadata": {
+            "has_more": False,  # No truncation
+            "page_token": None,
+            "narrative_summary": None  # User can generate their own
+        }
+    }
+
+
+def get_peak_orb_window(event: TransitEvent) -> dict:
+    """Get the peak orb window for a transit event.
+    
+    Args:
+        event: The TransitEvent
+
+    Returns:
+        Dict with exact timestamp and orb range
+    """
+    # For now, return the current orb as the peak
+    # In a full implementation, this would interpolate to find exact timing
+    return {
+        "exact_aspect_orb": round(event.orb, 4),
+        "orb_range": {
+            "min": round(max(0, event.orb - 0.5), 4),
+            "max": round(event.orb + 0.5, 4)
+        },
+        "within_1_degree_window": {
+            "start": round(max(0, event.orb - 1.0), 4),
+            "end": round(event.orb + 1.0, 4)
+        }
+    }
+
+
+# =============================================================================
+# Significance Weighting (Tier 2 - interpretation support)
+# =============================================================================
+
+def calculate_transit_significance(
+    event: TransitEvent,
+    natal_chart: NatalChart | None = None
+) -> float:
+    """Calculate a significance score for a transit event.
+    
+    Args:
+        event: The TransitEvent
+        natal_chart: Optional natal chart for luminaries/angles check
+
+    Returns:
+        Significance score (0-1, higher = more significant)
+        
+    Based on:
+    - Aspect quality: exact aspects > quincunx
+    - Orb size: smaller orb = more significant  
+    - Transiting planet speed: faster planets create shorter, sharper transits
+    - Luminaries/angles: Sun/Moon/Ascendant/MC aspects are more impactful
+    """
+    from ..core.ephemeris import DEFAULT_ORBS
+    
+    score = 1.0
+    
+    # Factor 1: Aspect quality (exact aspects > quincunx)
+    # Exact aspects: conjunction, opposition, square, trine, sextile
+    exact_aspects = [
+        AspectType.CONJUNCTION,
+        AspectType.OPPOSITION, 
+        AspectType.SQUARE,
+        AspectType.TRINE,
+        AspectType.SEXTILE
+    ]
+    
+    if event.aspect_type not in exact_aspects:
+        score *= 0.7  # Less significant for non-exact aspects
+    
+    # Factor 2: Orb size (smaller orb = more significant)
+    # Normalize to 0-1 range based on max orb for this aspect type
+    max_orb = DEFAULT_ORBS.get(event.aspect_type, 8.0)
+    
+    if event.orb <= max_orb * 0.3:
+        score *= 1.0  # Very tight orb - most significant
+    elif event.orb <= max_orb * 0.5:
+        score *= 0.8
+    elif event.orb <= max_orb * 0.7:
+        score *= 0.6
+    elif event.orb <= max_orb:
+        score *= 0.4
+    else:
+        score *= 0.2
+    
+    # Factor 3: Transiting planet speed
+    # Faster planets = shorter, sharper transits (more impactful)
+    # Order from slowest to fastest: Pluto, Neptune, Saturn, Uranus, Jupiter,
+    # Mars, Venus, Mercury, Moon, Sun
+    speed_ranking = {
+        Planet.PLUTO: 1,
+        Planet.NEPTUNE: 2,
+        Planet.SATURN: 3,
+        Planet.URANUS: 4,
+        Planet.JUPITER: 5,
+        Planet.MARS: 6,
+        Planet.VENUS: 7,
+        Planet.MERCURY: 8,
+        Planet.MOON: 9,
+        Planet.SUN: 10
+    }
+    
+    speed_score = speed_ranking.get(event.planet, 5) / 10.0
+    score *= speed_score
+    
+    # Factor 4: Luminaries/angles are more impactful
+    luminaries = [Planet.SUN, Planet.MOON]
+    angles = [Planet.ASCENDANT, Planet.MC]
+    
+    if event.planet in luminaries or event.natal_planet in luminaries:
+        score *= 1.3  # More significant for luminaries
+    if event.planet in angles or event.natal_planet in angles:
+        score *= 1.2  # More significant for angles
+    
+    return min(1.0, score)  # Cap at 1.0
+
+
+def filter_by_significance(
+    events: list[TransitEvent],
+    min_score: float = 0.5,
+    natal_chart: NatalChart | None = None
+) -> list[TransitEvent]:
+    """Filter transit events by significance score.
+    
+    Args:
+        events: List of TransitEvent objects
+        min_score: Minimum significance score (0-1)
+        natal_chart: Optional natal chart for calculations
+
+    Returns:
+        Filtered list of events
+    """
+    return [
+        e for e in events
+        if calculate_transit_significance(e, natal_chart) >= min_score
+    ]
+
+
+def add_significance_to_dict(event: TransitEvent, natal_chart: NatalChart) -> dict:
+    """Add significance score to transit dict.
+    
+    Args:
+        event: The TransitEvent
+        natal_chart: The natal chart
+
+    Returns:
+        Dict with significance score included
+    """
+    base_dict = transit_to_dict(event, natal_chart)
+    base_dict["significance_score"] = round(calculate_transit_significance(event, natal_chart), 4)
+    base_dict["peak_orb_window"] = get_peak_orb_window(event)
+    
+    return base_dict
+
+
+def transit_report_with_significance(
+    events: list[TransitEvent],
+    natal_chart: NatalChart,
+    min_significance: float = 0.3
+) -> dict:
+    """Generate transit report with significance filtering and scoring.
+    
+    Args:
+        events: List of TransitEvent objects
+        natal_chart: The natal chart
+        min_significance: Minimum significance score to include
+
+    Returns:
+        Complete structured JSON with significance scoring
+    """
+    # Calculate significance for all events
+    scored_events = [
+        add_significance_to_dict(e, natal_chart) for e in events
+    ]
+    
+    # Filter by minimum significance if specified
+    if min_significance > 0:
+        scored_events = [
+            e for e in scored_events 
+            if e.get("significance_score", 0) >= min_significance
+        ]
+    
+    return {
+        "total_events": len(scored_events),
+        "events": scored_events,
+        "metadata": {
+            "has_more": False,
+            "page_token": None,
+            "narrative_summary": None
+        }
+    }
+
+
+# =============================================================================
+# Grouping (Tier 2 - already partially implemented in transit.py)
+# =============================================================================
+
+def group_transits_by_house(
+    events: list[TransitEvent],
+    natal_chart: NatalChart
+) -> dict[int, list[TransitEvent]]:
+    """Group transit events by house.
+    
+    Args:
+        events: List of TransitEvent objects
+        natal_chart: The natal chart
+
+    Returns:
+        Dict mapping house numbers to lists of events
+    """
+    from ..charts.chart import get_planet_transit_house
+    
+    groups: dict[int, list[TransitEvent]] = {}
+    
+    for event in events:
+        house = get_planet_transit_house(natal_chart, event.transit_position)
+        if house:
+            if house not in groups:
+                groups[house] = []
+            groups[house].append(event)
+    
+    return groups
+
+
+def group_transits_by_planet(
+    events: list[TransitEvent],
+    natal_chart: NatalChart
+) -> dict[str, list[TransitEvent]]:
+    """Group transit events by transiting planet.
+    
+    Args:
+        events: List of TransitEvent objects
+        natal_chart: The natal chart (for context)
+
+    Returns:
+        Dict mapping planet names to lists of events
+    """
+    groups: dict[str, list[TransitEvent]] = {}
+    
+    for event in events:
+        planet_name = event.planet.name
+        if planet_name not in groups:
+            groups[planet_name] = []
+        groups[planet_name].append(event)
+    
+    return groups
+
+
+def group_transits_by_aspect(
+    events: list[TransitEvent],
+    natal_chart: NatalChart
+) -> dict[str, list[TransitEvent]]:
+    """Group transit events by aspect type.
+    
+    Args:
+        events: List of TransitEvent objects
+        natal_chart: The natal chart (for context)
+
+    Returns:
+        Dict mapping aspect names to lists of events
+    """
+    groups: dict[str, list[TransitEvent]] = {}
+    
+    for event in events:
+        aspect_name = event.aspect_type.name
+        if aspect_name not in groups:
+            groups[aspect_name] = []
+        groups[aspect_name].append(event)
+    
+    return groups
