@@ -23,6 +23,7 @@ from astrology.charts.chart import calculate_natal_chart, NatalChart
 from astrology.core.ephemeris import Planet, PlanetPosition, ZonalPosition, ZODIAC_NAMES, get_planet_position
 from astrology.core.aspects import get_major_aspects
 from astrology.transits.transit import get_current_transits
+from .transit_utils import get_aspect_display_name, is_major_aspect
 
 from .cache import (
     _get_cached_result,
@@ -602,7 +603,7 @@ async def handle_calculate_transits(arguments: dict[str, Any]) -> list[TextConte
                 transit_house_info[planet] = house_num
         
         for transit in report.transits[:20]:  # Top 20 most significant
-            aspect_name = transit.aspect_type.name.title()
+            aspect_name = get_aspect_display_name(transit.aspect_type)
             transit_house = transit_house_info.get(transit.planet, "N/A")
             natal_planet_name = transit.natal_planet.name
             lines.append(
