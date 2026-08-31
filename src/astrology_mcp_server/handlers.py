@@ -24,7 +24,12 @@ from astrology.core.ephemeris import Planet, PlanetPosition, ZonalPosition, ZODI
 from astrology.core.aspects import get_major_aspects
 from astrology.transits.transit import get_current_transits
 
-from .cache import _get_cached_result, _cache_result, _generate_result_id
+from .cache import (
+    _get_cached_result,
+    _get_cached_result_with_reason,
+    _cache_result,
+    _generate_result_id,
+)
 from .serializers import _serialize_chart, _build_chart_preview, _deserialize_zonal
 
 # Configure logging
@@ -113,14 +118,20 @@ async def handle_get_result(arguments: dict[str, Any]) -> list[TextContent]:
                 type="text",
                 text="Error: result_id is required. Provide the result_id from calculate_natal_chart or other compute tools.",
             )]
-        
-        entry = _get_cached_result(result_id)
-        
+
+        entry, reason = _get_cached_result_with_reason(result_id)
+
         if entry is None:
-            return [TextContent(
-                type="text",
-                text=f"Error: result_id '{result_id}' not found or expired. Call the compute tool again to generate a new result.",
-            )]
+            if reason == "expired":
+                return [TextContent(
+                    type="text",
+                    text=f"Error: result_id '{result_id}' has expired (TTL: 1 hour). Call the compute tool again to generate a new result.",
+                )]
+            else:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: result_id '{result_id}' not found. Please verify the ID or call the compute tool again.",
+                )]
         
         # Return the cached data
         return [TextContent(
@@ -379,23 +390,30 @@ async def handle_calculate_aspects(arguments: dict[str, Any]) -> list[TextConten
 
 async def handle_calculate_transits(arguments: dict[str, Any]) -> list[TextContent]:
     """Handle calculate_transits tool call.
-    
+
     Accepts either natal_chart (full data) OR natal_chart_id (cached result).
     Using natal_chart_id is recommended as it keeps context lean.
     """
     try:
         # Check if natal_chart_id is provided (new pattern)
         natal_chart_id = arguments.get("natal_chart_id")
-        
+
         if natal_chart_id:
             # Retrieve full chart data from cache
-            entry = _get_cached_result(natal_chart_id)
+            entry, reason = _get_cached_result_with_reason(natal_chart_id)
             if entry is None:
-                return [TextContent(
-                    type="text",
-                    text=f"Error: natal_chart_id '{natal_chart_id}' not found or expired. "
-                         "Call calculate_natal_chart to generate a new chart, or use natal_chart with full data.",
-                )]
+                if reason == "expired":
+                    return [TextContent(
+                        type="text",
+                        text=f"Error: natal_chart_id '{natal_chart_id}' has expired (TTL: 1 hour). "
+                             "Please recalculate with calculate_natal_chart, or use natal_chart with full data.",
+                    )]
+                else:
+                    return [TextContent(
+                        type="text",
+                        text=f"Error: natal_chart_id '{natal_chart_id}' not found. "
+                             "Please verify the ID or calculate a new chart with calculate_natal_chart.",
+                    )]
             natal_data = entry["data"]
         else:
             # Legacy: use full chart data from arguments
@@ -655,12 +673,20 @@ async def handle_scan_transits(arguments: dict[str, Any]) -> list[TextContent]:
         
         # Get natal chart data
         if params.natal_chart_id:
-            entry = _get_cached_result(params.natal_chart_id)
+            entry, reason = _get_cached_result_with_reason(params.natal_chart_id)
             if entry is None:
-                return [TextContent(
-                    type="text",
-                    text=f"Error: natal_chart_id '{params.natal_chart_id}' not found or expired.",
-                )]
+                if reason == "expired":
+                    return [TextContent(
+                        type="text",
+                        text=f"Error: natal_chart_id '{params.natal_chart_id}' has expired (TTL: 1 hour). "
+                             "Please recalculate the natal chart with calculate_natal_chart.",
+                    )]
+                else:
+                    return [TextContent(
+                        type="text",
+                        text=f"Error: natal_chart_id '{params.natal_chart_id}' not found. "
+                             "Please verify the ID or calculate a new natal chart with calculate_natal_chart.",
+                    )]
             natal_data = entry["data"]
         else:
             natal_data = params.natal_chart
@@ -686,21 +712,57 @@ async def handle_scan_transits(arguments: dict[str, Any]) -> list[TextContent]:
         # Reconstruct natal planets
         planets_data = natal_data.get("planets", {})
         natal_planets: dict[Planet, PlanetPosition] = {}
-        
+
         for planet_name, pos_data in planets_data.items():
             try:
                 planet_enum = Planet[planet_name]
             except KeyError:
                 continue
-            
+
             longitude_data = pos_data.get("longitude", 0)
             lon = float(longitude_data if isinstance(longitude_data, (int, float)) else longitude_data.get("longitude", 0))
-            
+
             natal_planets[planet_enum] = PlanetPosition(
                 planet=planet_enum,
                 longitude=lon,
+                latitude=pos_data.get("latitude", 0.0),
+                distance=pos_data.get("distance", 1.0),
+                retrograde=pos_data.get("retrograde", False),
+                motion_speed=0.0,  # Default to 0 if not provided
             )
-        
+
+        # Add angles (ascendant, midheaven) if present
+        angles = natal_data.get("angles", {})
+        if "ascendant" in angles and Planet.ASCENDANT not in natal_planets:
+            asc_data = angles["ascendant"]
+            if isinstance(asc_data, dict):
+                lon = asc_data.get("longitude", 0)
+            else:
+                lon = asc_data
+            natal_planets[Planet.ASCENDANT] = PlanetPosition(
+                planet=Planet.ASCENDANT,
+                longitude=lon,
+                latitude=0.0,
+                distance=1.0,
+                retrograde=False,
+                motion_speed=0.0,
+            )
+
+        if "midheaven" in angles and Planet.MC not in natal_planets:
+            mc_data = angles["midheaven"]
+            if isinstance(mc_data, dict):
+                lon = mc_data.get("longitude", 0)
+            else:
+                lon = mc_data
+            natal_planets[Planet.MC] = PlanetPosition(
+                planet=Planet.MC,
+                longitude=lon,
+                latitude=0.0,
+                distance=1.0,
+                retrograde=False,
+                motion_speed=0.0,
+            )
+
         # Get house system for house calculations
         house_system = params.house_system if hasattr(params, 'house_system') else "Whole Sign"
         
@@ -714,12 +776,14 @@ async def handle_scan_transits(arguments: dict[str, Any]) -> list[TextContent]:
         while current_date <= end_dt:
             try:
                 # Calculate transiting positions for this date/time
-                from astrology.core.ephemeris import calculate_planet_positions as calc_transits
-                transiting_positions = calc_transits(current_date, longitude, latitude)
-                
+                from astrology.core.ephemeris import get_all_planets
+                from astrology.core.calendar import gregorian_to_julian_day
+                jd = gregorian_to_julian_day(current_date.year, current_date.month, current_date.day, current_date.hour)
+                transiting_positions = list(get_all_planets(jd.jd).values())
+
                 # Calculate house cusps for this date/time
-                from astrology.core.houses import calculate_houses
-                house_cusps = calculate_houses(current_date, latitude, longitude, house_system)
+                from astrology.core.ephemeris import calculate_houses
+                house_cusps = calculate_houses(jd.jd, latitude, longitude, house_system)
             except Exception as e:
                 current_date += hour_increment
                 continue
@@ -768,24 +832,35 @@ async def handle_scan_transits(arguments: dict[str, Any]) -> list[TextContent]:
                         )
                         
                         if significance_score >= params.min_significance:
-                            # Get sign and degree for both planets
-                            from astrology.core.zodiac import get_sign_info
-                            
-                            transit_sign, transit_degree = get_sign_info(transiting_pos.longitude)
-                            natal_sign, natal_degree = get_sign_info(natal_pos.longitude)
-                            
+                            # Get sign and degree from zonal position
+                            transit_sign = transiting_pos.zonal.sign_name
+                            transit_degree = transiting_pos.zonal.degree_in_sign
+                            natal_sign = natal_pos.zonal.sign_name
+                            natal_degree = natal_pos.zonal.degree_in_sign
+
                             # Calculate houses for transiting and natal positions
                             transit_house = None
                             natal_house = None
-                            
-                            for house_num, cusp in house_cusps.items():
-                                next_cusp = list(house_cusps.values())[(list(house_cusps.keys()).index(house_num) + 1) % 12]
-                                # Check if position falls in this house
-                                if transit_sign == "Pisces" or (cusp <= transiting_pos.longitude < next_cusp):
-                                    transit_house = house_num
-                                if cusp <= natal_pos.longitude < next_cusp:
-                                    natal_house = house_num
-                            
+
+                            # Extract house numbers and cusps as sorted list
+                            house_items = [(k, v) for k, v in house_cusps.items() if k.startswith("house_")]
+                            house_items.sort(key=lambda x: int(x[0].replace("house_", "")))
+
+                            for i, (house_num, cusp) in enumerate(house_items):
+                                # Get next house cusp (wrap around)
+                                next_i = (i + 1) % len(house_items)
+                                next_cusp = house_items[next_i][1]
+                                
+                                # Use .longitude for ZonalPosition objects
+                                cusp_lon = cusp.longitude if hasattr(cusp, 'longitude') else cusp
+                                next_cusp_lon = next_cusp.longitude if hasattr(next_cusp, 'longitude') else next_cusp
+                                
+                                # Check if position falls in this house (handle sign wrap-around)
+                                if transit_sign == "Pisces" or (cusp_lon <= transiting_pos.longitude < next_cusp_lon):
+                                    transit_house = int(house_num.replace("house_", ""))
+                                if cusp_lon <= natal_pos.longitude < next_cusp_lon:
+                                    natal_house = int(house_num.replace("house_", ""))
+
                             # Calculate peak orb window
                             peak_window_start = current_date - timedelta(hours=24)
                             peak_window_end = current_date + timedelta(hours=24)

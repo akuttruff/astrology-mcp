@@ -48,6 +48,9 @@ from .handlers import (
     handle_get_houses,
 )
 
+# Import cache for cleanup on startup
+from . import cache as cache_module
+
 # Import tools
 from .tools import (
     CALCULATE_NATAL_CHART_TOOL,
@@ -93,7 +96,7 @@ ALL_TOOLS = [
 async def _handle_get_current_time(arguments: dict[str, Any]) -> list[TextContent]:
     """Handle get_current_time tool call."""
     now = datetime.now(timezone.utc)
-    
+
     result = {
         "utc_datetime": now.isoformat(),
         "year": now.year,
@@ -103,12 +106,20 @@ async def _handle_get_current_time(arguments: dict[str, Any]) -> list[TextConten
         "minute": now.minute,
         "second": now.second,
     }
-    
+
+    # Include cache statistics for debugging
+    cache_stats = cache_module._get_cache_stats()
+    result["cache_stats"] = {
+        "hits": cache_stats["hits"],
+        "misses": cache_stats["misses"],
+        "expired": cache_stats["expired"],
+        "total_cached": cache_stats["total_cached"],
+    }
+
     return [TextContent(
         type="text",
         text=json.dumps(result, indent=2),
     )]
-
 
 async def _handle_tool_call(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Route tool calls to appropriate handlers.
@@ -138,7 +149,14 @@ def main():
     async def run_server():
         """Run the MCP server asynchronously."""
         logger.info("Starting Astrology MCP Server...")
-        
+
+        # Clean up expired cache entries on startup
+        cleaned = cache_module._cleanup_expired_results()
+        if cleaned > 0:
+            logger.info(f"Cache cleanup on startup: removed {cleaned} expired entries")
+        else:
+            logger.debug("Cache check: no expired entries found")
+
         # Create server instance with tools
         server = Server(name="astrology")
         
