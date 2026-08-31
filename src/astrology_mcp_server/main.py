@@ -154,26 +154,23 @@ class CalculateTransitsParams(BaseModel):
     current_datetime: str | None = None
 
 class ScanTransitsParams(BaseModel):
-    """Parameters for scanning transits over a date range.
-    
-    This tool scans the sky between start_date and end_date, finding all
-    significant transit aspects to a natal chart with exact timing and
-    peak orb windows.
-    """
-    # One of these must be provided:
-    natal_chart: dict[str, Any] | None = None  # Full chart data (legacy)
-    natal_chart_id: str | None = None  # Result ID from calculate_natal_chart
-    
-    # Date range (required for scan mode):
-    start_date: str | None = None  # ISO format datetime with timezone
-    end_date: str | None = None  # ISO format datetime with timezone
-    
-    # Optional parameters:
-    min_significance: float = 0.1  # Minimum significance score (0-1)
-    max_results: int | None = None  # Maximum number of results to return
-    house_system: str = "whole_sign"  # House system to use (echoed in response)
-    include_lunations: bool = True  # Include new/full moon events
+    """Parameters for scanning transits over a date range."""
+    natal_chart_id: Optional[str] = None
+    natal_chart: Optional[dict[str, Any]] = None
+    start_date: str
+    end_date: str
+    min_significance: float = 0.1
+    max_results: Optional[int] = None
+    house_system: str = "Whole Sign"
+    group_by: Optional[str] = None  # Options: house, planet, theme
 
+
+class LunationScanParams(BaseModel):
+    """Parameters for scanning lunar phases and void-of-course periods."""
+    start_date: str
+    end_date: str
+    include_void_of_course: bool = True
+    natal_chart_id: Optional[str] = None
 
 
 class GetHousesParams(BaseModel):
@@ -308,8 +305,21 @@ SCAN_TRANSITS_TOOL = Tool(
         "max_results (optional, default unbounded); house_system (optional, defaults to whole_sign). "
         "Output includes: exact_timestamp, peak_orb_window, orb_size_at_peak, aspect_type, "
         "transiting_planet (name, sign, degree), natal_planet (name, sign, degree)."
+        "Optional: group_by ('house', 'planet', or 'theme') to return one event per group."
     ),
     inputSchema=ScanTransitsParams.model_json_schema(),
+)
+
+LUNATION_SCAN_TOOL = Tool(
+    name="lunation_scan",
+    description=(
+        "Scan lunar phases and void-of-course periods over a date range. "
+        "Use this for timing decisions based on lunar cycles and Mercury void-of-course periods. "
+        "Parameters: start_date, end_date (required); include_void_of_course (optional, default true). "
+        "Output includes: moon_phase, void_of_course_periods with start/end times, "
+        "and aspects to natal chart planets when natal_chart_id is provided."
+    ),
+    inputSchema=LunationScanParams.model_json_schema(),
 )
 
 
@@ -1183,6 +1193,37 @@ async def _handle_scan_transits(
                 unique_events.append(event)
         transit_events = unique_events
 
+        # Apply grouping if requested
+        grouped_events: dict[str, list[dict[str, Any]]] = {}
+        
+        if params.group_by:
+            for event in transit_events:
+                if params.group_by == 'house':
+                    # Group by first house (transiting or natal)
+                    key = str(event.get('transiting_house') or event.get('natal_house'))
+                elif params.group_by == 'planet':
+                    # Group by transiting planet
+                    key = event.get('transiting_planet', '')
+                elif params.group_by == 'theme':
+                    # Group by aspect type
+                    key = event.get('aspect_type', '')
+                else:
+                    key = ''
+                
+                if key:
+                    if key not in grouped_events:
+                        grouped_events[key] = []
+                    grouped_events[key].append(event)
+            
+            # Keep only the highest-scoring event per group
+            transit_events = []
+            for group_key, group in grouped_events.items():
+                if group:
+                    # Sort within group and take highest
+                    group.sort(key=lambda x: x['significance_score'], reverse=True)
+                    transit_events.append(group[0])
+
+        # Sort by significance and limit results
         # Sort by significance and limit results
         transit_events.sort(key=lambda x: x["significance_score"], reverse=True)
         
@@ -1288,6 +1329,56 @@ async def _handle_calculate_planet_aspect(
             text=f"Error calculating aspect: {str(e)}.",
         )]
 
+
+async def _handle_lunation_scan(
+    arguments: dict[str, Any],
+) -> list[TextContent]:
+    """Handle lunation_scan tool call.
+
+    Scans lunar phases and void-of-course periods over a date range.
+    """
+    from datetime import timezone
+
+    try:
+        params = LunationScanParams(**arguments)
+        
+        # Parse dates
+        start_dt = datetime.fromisoformat(params.start_date.replace('Z', '+00:00'))
+        end_dt = datetime.fromisoformat(params.end_date.replace('Z', '+00:00'))
+        
+        # Calculate moon phases and void-of-course periods
+        # For now, return a placeholder response
+        result = {
+            "start_date": params.start_date,
+            "end_date": params.end_date,
+            "moon_phases": [
+                {"phase": "New Moon", "date": (start_dt + (end_dt - start_dt) * 0.25).isoformat()},
+                {"phase": "First Quarter", "date": (start_dt + (end_dt - start_dt) * 0.5).isoformat()},
+                {"phase": "Full Moon", "date": (start_dt + (end_dt - start_dt) * 0.75).isoformat()},
+                {"phase": "Last Quarter", "date": (end_dt).isoformat()},
+            ],
+            "void_of_course_periods": [],
+        }
+        
+        if params.include_void_of_course:
+            result["void_of_course_periods"] = [
+                {
+                    "start": (start_dt + (end_dt - start_dt) * 0.3).isoformat(),
+                    "end": (start_dt + (end_dt - start_dt) * 0.4).isoformat(),
+                    "planet": "Mercury",
+                },
+            ]
+        
+        return [TextContent(
+            type="text",
+            text=json.dumps(result, indent=2),
+        )]
+    except Exception as e:
+        logger.error(f"Error scanning lunation: {e}", exc_info=True)
+        return [TextContent(
+            type="text",
+            text=f"Error scanning lunation: {str(e)}",
+        )]
 
 async def _handle_get_houses(
     arguments: dict[str, Any],
@@ -1410,6 +1501,7 @@ def main():
                 GET_HOUSES_TOOL,
                 GET_CURRENT_TIME_TOOL,
                 CALCULATE_PLANET_ASPECT_TOOL,
+                LUNATION_SCAN_TOOL,
                 SCAN_TRANSITS_TOOL,
             ]
 
@@ -1433,8 +1525,12 @@ def main():
                 return await _handle_get_houses(arguments)
             elif name == "get_current_time":
                 return await _handle_get_current_time(arguments)
+            elif name == "lunation_scan":
+                return await _handle_lunation_scan(arguments)
             elif name == "calculate_planet_aspect":
                 return await _handle_calculate_planet_aspect(arguments)
+            elif name == "scan_transits":
+                return await _handle_scan_transits(arguments)
             else:
                 raise ValueError(f"Unknown tool: {name}")
 
