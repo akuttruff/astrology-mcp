@@ -118,6 +118,33 @@ def julian_day_to_gregorian(jd: float) -> tuple[int, int, float]:
     return (year, month, day)
 
 
+def julian_day_to_datetime(jd: float) -> datetime:
+    """Convert Julian Day to Python datetime.
+
+    Args:
+        jd: Julian Day number
+
+    Returns:
+        datetime object in UTC
+    """
+    year, month, day_float = julian_day_to_gregorian(jd)
+    
+    # Extract hours, minutes, seconds from fractional day
+    day_int = int(day_float)
+    frac_day = day_float - day_int
+    
+    hours = int(frac_day * 24)
+    frac_hours = (frac_day * 24) - hours
+    minutes = int(frac_hours * 60)
+    frac_minutes = (frac_hours * 60) - minutes
+    seconds = int(frac_minutes * 60)
+    
+    # Create datetime in UTC
+    dt = datetime(year, month, day_int, hours, minutes, seconds, tzinfo=timezone.utc)
+    
+    return dt
+
+
 def calculate_sidereal_time(jd: float, longitude: float) -> float:
     """Calculate mean sidereal time at a given Julian Day and longitude.
 

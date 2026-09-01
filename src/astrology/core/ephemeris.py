@@ -392,3 +392,361 @@ def calculate_ayanamsa(jd: float) -> float:
     t = (jd - 2451545.0) / 36525.0
     ayanamsa = 24.0 + 0.01397 * t - 0.000002 * t**2
     return ayanamsa
+
+
+def get_moon_phase(jd: float) -> tuple[str, float, int]:
+    """Calculate the current moon phase.
+
+    Args:
+        jd: Julian Day
+
+    Returns:
+        Tuple of (phase_name, illumination_percent, synodic_age)
+        phase_name: Current phase (New Moon, First Quarter, Full Moon, Last Quarter, etc.)
+        illumination_percent: Percentage of moon illuminated (0-100)
+        synodic_age: Days since last new moon (0-29.53)
+    """
+    # Synodic month length in days
+    synodic_month = 29.53058867
+    
+    # Reference new moon at JD 2451550.3 (January 6, 2000, 18:14 UT)
+    reference_new_moon = 2451550.3
+    
+    # Calculate days since reference new moon
+    days_since_new = jd - reference_new_moon
+    
+    # Calculate position in synodic cycle (0-1)
+    cycle_position = (days_since_new % synodic_month) / synodic_month
+    
+    # Calculate synodic age in days
+    synodic_age = cycle_position * synodic_month
+    
+    # Calculate illumination (0-100%)
+    # Illumination is 0% at new moon, 50% at quarters, 100% at full moon
+    illumination = 50 * (1 - math.cos(2 * math.pi * cycle_position))
+    
+    # Determine phase name based on cycle position
+    if synodic_age < 1.845:
+        phase_name = "New Moon"
+    elif synodic_age < 5.539:
+        phase_name = "Waxing Crescent"
+    elif synodic_age < 9.231:
+        phase_name = "First Quarter"
+    elif synodic_age < 12.924:
+        phase_name = "Waxing Gibbous"
+    elif synodic_age < 16.617:
+        phase_name = "Full Moon"
+    elif synodic_age < 20.310:
+        phase_name = "Waning Gibbous"
+    elif synodic_age < 24.003:
+        phase_name = "Last Quarter"
+    elif synodic_age < 27.695:
+        phase_name = "Waning Crescent"
+    else:
+        phase_name = "New Moon"
+    
+    return phase_name, round(illumination, 2), int(synodic_age)
+
+
+def get_moon_phase_angle(jd: float) -> tuple[float, float]:
+    """Calculate moon phase angle and sun-moon separation.
+
+    Args:
+        jd: Julian Day
+
+    Returns:
+        Tuple of (phase_angle_degrees, sun_moon_separation_degrees)
+        phase_angle: Angle between sun and moon as seen from Earth (0=new, 180=full)
+        separation: Direct angular separation between sun and moon
+    """
+    from astrology.core.ephemeris import get_planet_position, Planet
+    
+    # Get sun and moon positions
+    sun_pos = get_planet_position(Planet.SUN, jd)
+    moon_pos = get_planet_position(Planet.MOON, jd)
+    
+    # Calculate angular separation
+    separation = abs(moon_pos.longitude - sun_pos.longitude)
+    if separation > 180:
+        separation = 360 - separation
+    
+    # Phase angle is the same as separation for moon phases
+    # 0° = new moon, 180° = full moon
+    phase_angle = separation
+    
+    return round(phase_angle, 2), round(separation, 2)
+
+
+def find_next_moon_phase(jd: float, target_phase: str) -> tuple[float, str]:
+    """Find the next occurrence of a specific moon phase.
+
+    Args:
+        jd: Starting Julian Day
+        target_phase: Target phase ("New Moon", "First Quarter", "Full Moon", "Last Quarter")
+
+    Returns:
+        Tuple of (jd_of_phase, phase_name)
+    """
+    # Synodic month length in days
+    synodic_month = 29.53058867
+    
+    # Phase offsets in synodic cycle (fraction of cycle)
+    phase_offsets = {
+        "New Moon": 0.0,
+        "First Quarter": 0.25,
+        "Full Moon": 0.5,
+        "Last Quarter": 0.75,
+    }
+    
+    if target_phase not in phase_offsets:
+        return jd, "Unknown"
+    
+    # Get current cycle position
+    reference_new_moon = 2451550.3
+    days_since_new = jd - reference_new_moon
+    current_cycle_pos = (days_since_new % synodic_month) / synodic_month
+    
+    # Calculate target cycle position
+    target_cycle_pos = phase_offsets[target_phase]
+    
+    # Find next occurrence
+    if current_cycle_pos < target_cycle_pos:
+        days_until = (target_cycle_pos - current_cycle_pos) * synodic_month
+    else:
+        days_until = (1 - current_cycle_pos + target_cycle_pos) * synodic_month
+    
+    next_jd = jd + days_until
+    
+    return next_jd, target_phase
+
+
+def scan_moon_phases(jd_start: float, jd_end: float) -> list[dict[str, Any]]:
+    """Scan for moon phases within a date range.
+
+    Args:
+        jd_start: Starting Julian Day
+        jd_end: Ending Julian Day
+
+    Returns:
+        List of phase events with date, name, and illumination
+    """
+    from astrology.core.calendar import julian_day_to_datetime
+    
+    phases = []
+    current_jd = jd_start
+    
+    # Check approximately every 3 days (moon phase changes significantly)
+    while current_jd <= jd_end:
+        phase_name, illumination, _ = get_moon_phase(current_jd)
+        
+        # Check if this is a major phase
+        if phase_name in ["New Moon", "First Quarter", "Full Moon", "Last Quarter"]:
+            # Refine the exact time using binary search
+            refined_jd = _refine_moon_phase_time(current_jd, phase_name)
+            
+            if jd_start <= refined_jd <= jd_end:
+                date_time = julian_day_to_datetime(refined_jd)
+                phases.append({
+                    "phase": phase_name,
+                    "date": date_time.isoformat(),
+                    "illumination": illumination,
+                })
+        
+        current_jd += 3
+    
+    return phases
+
+
+def _refine_moon_phase_time(jd_start: float, target_phase: str, tolerance: float = 0.001) -> float:
+    """Refine moon phase time using binary search.
+
+    Args:
+        jd_start: Starting Julian Day
+        target_phase: Target phase to refine
+        tolerance: Time tolerance in days (default 1.44 minutes)
+
+    Returns:
+        Refined Julian Day for the phase
+    """
+    synodic_month = 29.53058867
+    
+    # Target cycle position for the phase
+    phase_offsets = {
+        "New Moon": 0.0,
+        "First Quarter": 0.25,
+        "Full Moon": 0.5,
+        "Last Quarter": 0.75,
+    }
+    
+    target_cycle_pos = phase_offsets.get(target_phase, 0.0)
+    reference_new_moon = 2451550.3
+    
+    # Binary search for exact time
+    low = jd_start - 1
+    high = jd_start + 1
+    
+    for _ in range(50):  # Max iterations
+        mid = (low + high) / 2
+        
+        # Calculate current cycle position at mid
+        days_since_new = mid - reference_new_moon
+        cycle_pos = (days_since_new % synodic_month) / synodic_month
+        
+        # Adjust for cycle wrapping
+        if cycle_pos < 0:
+            cycle_pos += 1
+        
+        # Calculate error
+        error = cycle_pos - target_cycle_pos
+        
+        # Adjust for cycle wrapping in error
+        if error > 0.5:
+            error -= 1
+        elif error < -0.5:
+            error += 1
+        
+        if abs(error) < tolerance / synodic_month:
+            return mid
+        
+        # Binary search adjustment
+        if error < 0:
+            low = mid
+        else:
+            high = mid
+    
+    return (low + high) / 2
+
+
+def find_void_of_course_periods(jd_start: float, jd_end: float, 
+                                 natal_chart_data: dict | None = None) -> list[dict[str, Any]]:
+    """Find void-of-course moon periods within a date range.
+
+    A moon is void of course when it has completed all its major aspects in a sign
+    and is about to enter the next sign. We detect this by finding when the moon
+    changes signs.
+
+    Args:
+        jd_start: Starting Julian Day
+        jd_end: Ending Julian Day
+        natal_chart_data: Optional natal chart data for aspect-based VoC detection
+
+    Returns:
+        List of void-of-course periods with start/end times and last aspect info
+    """
+    from astrology.core.calendar import julian_day_to_datetime
+    
+    periods = []
+    
+    # Find all moon sign changes in the range by scanning with larger steps
+    current_jd = jd_start
+    
+    while current_jd < jd_end:
+        # Get moon position at this time
+        # get_planet_position and Planet are available from module scope
+        moon_pos = get_planet_position(Planet.MOON, current_jd)
+        
+        # Find what sign the moon is in
+        current_sign_index = int(moon_pos.longitude // 30)
+        
+        # Find next sign change - search up to 3 days ahead (moon takes ~2.5 days per sign)
+        next_sign_jd = _find_next_sign_change(current_jd, Planet.MOON, max_search_days=3.5)
+        
+        # Check if this sign change is actually a transition to the next sign
+        end_pos = get_planet_position(Planet.MOON, next_sign_jd)
+        end_sign_index = int(end_pos.longitude // 30)
+        
+        # The sign should have changed
+        expected_next_sign = (current_sign_index + 1) % 12
+        
+        if next_sign_jd <= jd_end and end_sign_index == expected_next_sign:
+            # Moon will change signs - find the exact transition time using binary search
+            actual_transition = _binary_search_sign_change(
+                current_jd, next_sign_jd, Planet.MOON, expected_next_sign
+            )
+            
+            if jd_start <= actual_transition <= jd_end:
+                start_time = julian_day_to_datetime(current_jd)
+                end_time = julian_day_to_datetime(actual_transition)
+                
+                periods.append({
+                    "start": start_time.isoformat(),
+                    "end": end_time.isoformat(),
+                    "planet": "Moon",
+                    "from_sign": ZODIAC_NAMES[current_sign_index],
+                    "to_sign": ZODIAC_NAMES[end_sign_index],
+                })
+                
+                # Move to just after the transition to find next one
+                current_jd = actual_transition + 0.1  # ~2.4 hours after transition
+            else:
+                break
+        elif next_sign_jd > current_jd + 3.5:
+            # No sign change within reasonable time - something is wrong
+            break
+        else:
+            # Move forward and try again
+            current_jd += 1.0  # 1 day
+    
+    return periods
+
+
+def _find_next_sign_change(jd_start: float, planet: Planet, max_search_days: float = 3.0) -> float:
+    """Find the next time a planet changes signs.
+
+    Args:
+        jd_start: Starting Julian Day
+        planet: The planet to track
+        max_search_days: Maximum days to search for sign change
+
+    Returns:
+        Julian Day when planet enters next sign, or jd_start + max_search_days if not found
+    """
+    # get_planet_position is available from module scope
+    current_pos = get_planet_position(planet, jd_start)
+    current_sign_index = int(current_pos.longitude // 30)
+    
+    # Search for sign change - check every 2 hours initially
+    search_jd = jd_start + 0.1  # Start 2.4 hours later
+    step = 0.0833  # ~2 hours in days
+    
+    while search_jd <= jd_start + max_search_days:
+        next_pos = get_planet_position(planet, search_jd)
+        next_sign_index = int(next_pos.longitude // 30)
+        
+        if next_sign_index != current_sign_index:
+            # Sign changed - return this point
+            return search_jd
+        
+        search_jd += step
+    
+    return jd_start + max_search_days
+
+
+def _binary_search_sign_change(jd_low: float, jd_high: float, planet: Planet, 
+                                 target_sign_index: int) -> float:
+    """Binary search for exact sign change time.
+
+    Args:
+        jd_low: Lower bound Julian Day
+        jd_high: Upper bound Julian Day
+        planet: The planet to track
+        target_sign_index: The sign index we're transitioning TO
+
+    Returns:
+        Refined Julian Day of sign change
+    """
+    for _ in range(40):  # Max iterations
+        jd_mid = (jd_low + jd_high) / 2
+        
+        pos = get_planet_position(planet, jd_mid)
+        sign_index = int(pos.longitude // 30)
+        
+        if sign_index == target_sign_index:
+            jd_high = jd_mid
+        else:
+            jd_low = jd_mid
+        
+        if jd_high - jd_low < 0.0001:  # ~1 minute precision
+            break
+    
+    return (jd_low + jd_high) / 2

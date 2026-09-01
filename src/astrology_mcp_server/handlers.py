@@ -1072,49 +1072,48 @@ async def handle_calculate_planet_aspect(arguments: dict[str, Any]) -> list[Text
 
 async def handle_lunation_scan(arguments: dict[str, Any]) -> list[TextContent]:
     """Handle lunation_scan tool call.
-    
+
     Scans lunar phases and void-of-course periods over a date range.
     """
     from datetime import timezone
-    
+
     try:
         from pydantic import BaseModel
-        
+
         class LunationScanParams(BaseModel):
             start_date: str
             end_date: str
             include_void_of_course: bool = True
             natal_chart_id: str | None = None
-        
+
         params = LunationScanParams(**arguments)
-        
+
         # Parse dates
         start_dt = datetime.fromisoformat(params.start_date.replace('Z', '+00:00'))
         end_dt = datetime.fromisoformat(params.end_date.replace('Z', '+00:00'))
+
+        # Convert to Julian Day for calculations
+        from astrology.core.calendar import gregorian_to_julian_day
+        jd_start = gregorian_to_julian_day(start_dt.year, start_dt.month, start_dt.day, start_dt.hour).jd
+        jd_end = gregorian_to_julian_day(end_dt.year, end_dt.month, end_dt.day, end_dt.hour).jd
+
+        # Scan for moon phases using real ephemeris calculations
+        from astrology.core.ephemeris import scan_moon_phases, find_void_of_course_periods
         
-        # Calculate moon phases and void-of-course periods
-        # For now, return a placeholder response
+        moon_phases = scan_moon_phases(jd_start, jd_end)
+        
+        # Scan for void-of-course periods
+        void_of_course_periods = []
+        if params.include_void_of_course:
+            void_of_course_periods = find_void_of_course_periods(jd_start, jd_end)
+
         result = {
             "start_date": params.start_date,
             "end_date": params.end_date,
-            "moon_phases": [
-                {"phase": "New Moon", "date": (start_dt + (end_dt - start_dt) * 0.25).isoformat()},
-                {"phase": "First Quarter", "date": (start_dt + (end_dt - start_dt) * 0.5).isoformat()},
-                {"phase": "Full Moon", "date": (start_dt + (end_dt - start_dt) * 0.75).isoformat()},
-                {"phase": "Last Quarter", "date": (end_dt).isoformat()},
-            ],
-            "void_of_course_periods": [],
+            "moon_phases": moon_phases,
+            "void_of_course_periods": void_of_course_periods,
         }
-        
-        if params.include_void_of_course:
-            result["void_of_course_periods"] = [
-                {
-                    "start": (start_dt + (end_dt - start_dt) * 0.3).isoformat(),
-                    "end": (start_dt + (end_dt - start_dt) * 0.4).isoformat(),
-                    "planet": "Mercury",
-                },
-            ]
-        
+
         return [TextContent(
             type="text",
             text=json.dumps(result, indent=2),
