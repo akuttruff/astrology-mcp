@@ -8,12 +8,14 @@ A Python-based astrology calculation tool using Swiss Ephemeris for use with MCP
 - **Planetary Positions**: Get current positions of all planets including Mercury through Pluto
 - **Aspect Calculations**: Calculate planetary aspects (conjunction, square, opposition, trine, sextile)
 - **Transit Analysis**: Track transiting planets and their aspects to natal positions
-- **Progressions**: Solar arc progressions for forecasting
+  - `calculate_transits`: Single-date transit calculation
+  - `scan_transits`: Date-range scanning with significance weighting and grouping
+- **Lunation Scan**: Moon phases and void-of-course period detection
 
 ### Supported House Systems
 
 - **Whole Sign** (default) - Each house corresponds to a full zodiac sign
-- Placidus, Equal House, Koch, Porphyry, and Regiomontanus available (see `get_houses` tool documentation)
+- Placidus, Equal House, Koch, Porphyry, and Regiomontanus available
 
 ## Installation
 
@@ -47,7 +49,7 @@ The ephemeris files will be automatically detected or you can set the path expli
 
 ## Usage
 
-### Basic Example
+### Basic Example (Direct Library)
 
 ```python
 from astrology.charts.chart import calculate_natal_chart
@@ -120,12 +122,25 @@ The server communicates via stdio, so any MCP client that supports stdio transpo
 **Available tools:**
 - `get_current_time` - Get the current UTC date and time
 - `calculate_natal_chart` - Calculate a complete birth chart (birth_datetime with timezone recommended)
+- `get_result` - Retrieve cached data by result_id (lazy loading pattern)
 - `get_planet_positions` - Get current planetary positions
 - `calculate_aspects` - Calculate planetary aspects between chart objects
-- `calculate_transits` - Get current transits to a natal chart
+- `calculate_transits` - Get current transits to a natal chart (single date)
+- `scan_transits` - Scan transits over a date range with significance weighting and grouping
+- `lunation_scan` - Scan moon phases and void-of-course periods over a date range
 - `get_houses` - Get house positions for planets
 
 **Important**: For accurate natal charts, provide birth datetime with timezone.
+
+## MCP Caching Pattern
+
+The server implements a lazy loading pattern for efficient LLM integration:
+
+1. **Quick decision with preview**: `calculate_natal_chart` returns `{result_id, preview}` where preview contains key highlights (sun/moon/rising signs) for quick decisions
+2. **Full data when needed**: `get_result(result_id)` fetches the full chart data
+3. **Lean context for transit calculations**: `calculate_transits` and `scan_transits` can use `natal_chart_id` instead of full chart data
+
+This pattern keeps context lean for simple decisions while allowing full data retrieval when needed.
 
 ## Project Structure
 
@@ -133,20 +148,24 @@ The server communicates via stdio, so any MCP client that supports stdio transpo
 astrology-mcp/
 ├── src/
 │   ├── astrology_mcp_server/
-│   │   └── main.py            # MCP server entry point
-│   └── astrology/
-│       ├── __init__.py
-│       ├── core/
-│       │   ├── calendar.py    # Date/time handling
-│       │   ├── ephemeris.py   # Planet positions
-│       │   └── aspects.py     # Aspect calculations
-│       ├── charts/
-│       │   └── chart.py       # Natal chart calculation
-│       ├── transits/
-│       │   └── transit.py     # Transit calculations
-│       └── progressions/
-│           └── solar_arc.py   # Progression calculations
-└── tests/
+│   │   ├── __init__.py        # MCP server entry point
+│   │   └── main.py            # Server main module
+│   ├── astrology/
+│   │   ├── __init__.py
+│   │   ├── core/
+│   │   │   ├── calendar.py    # Date/time handling
+│   │   │   ├── ephemeris.py   # Planet positions and moon phases
+│   │   │   └── aspects.py     # Aspect calculations
+│   │   ├── charts/
+│   │   │   └── chart.py       # Natal chart calculation
+│   │   ├── transits/
+│   │   │   └── transit.py     # Transit calculations
+│   │   ├── progressions/
+│   │   │   └── solar_arc.py   # Progression calculations (not yet implemented)
+│   │   └── transit_utils.py   # Transit utility functions
+│   └── serializers.py         # Data serialization utilities
+├── tests/
+└── mcp.json                   # MCP client configuration
 ```
 
 ## Development
@@ -163,6 +182,9 @@ pip install -e .
 
 # Run example natal chart (with your birth data)
 python my_natal_chart.py
+
+# Run all examples
+python example.py
 ```
 
 ## Troubleshooting
@@ -174,10 +196,10 @@ If your chart shows incorrect planet signs or house positions:
 1. **Check timezone handling**: Ensure your datetime has proper timezone info
    ```python
    from datetime import datetime, timezone, timedelta
-   
+
    # Include timezone offset for accurate conversion to UTC
    dt = datetime.fromisoformat("1984-05-10T20:44:00-07:00")  # PDT
-   
+
    chart = calculate_natal_chart(
        birth_datetime=dt,
        latitude=34.0211,
@@ -189,14 +211,7 @@ If your chart shows incorrect planet signs or house positions:
 
 3. **Check house system**: Verify you're using the correct house system (default is Whole Sign)
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-**Note**: This project uses Swiss Ephemeris, which is available under a dual license
-(AGPL or Commercial). See the LICENSE file for full details and attribution requirements.
-
-## Using with LM Studio
+### LM Studio Integration
 
 LM Studio is a popular interface for running local LLMs and integrating MCP servers.
 
@@ -222,7 +237,16 @@ LM Studio is a popular interface for running local LLMs and integrating MCP serv
 **Available tools in LM Studio:**
 - `get_current_time` - Get the current UTC date and time
 - `calculate_natal_chart` - Calculate a complete birth chart (birth_datetime with timezone recommended)
+- `get_result` - Retrieve cached data by result_id
 - `get_planet_positions` - Get current planetary positions
 - `calculate_aspects` - Calculate planetary aspects between chart objects
 - `calculate_transits` - Get current transits to a natal chart
-- `get_houses` - Get house positions for planets
+- `scan_transits` - Scan transits over a date range with significance weighting and grouping
+- `lunation_scan` - Scan moon phases and void-of-course periods over a date range
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+**Note**: This project uses Swiss Ephemeris, which is available under a dual license
+(AGPL or Commercial). See the LICENSE file for full details and attribution requirements.
