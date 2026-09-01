@@ -163,8 +163,7 @@ def get_current_transits(
     jd = gregorian_to_julian_day(
         current_datetime.year,
         current_datetime.month,
-        current_datetime.day,
-        current_datetime.hour
+        current_datetime.day + (current_datetime.hour + current_datetime.minute / 60 + current_datetime.second / 3600) / 24
     )
 
     transiting_planets = get_all_planets(jd.jd)
@@ -327,7 +326,7 @@ def calculate_transit_for_date_range(
     from datetime import timedelta
     
     # Daily sampling - can increase for more precision
-    sample_interval_hours = 12  # Check every 12 hours
+    sample_interval_hours = 1  # Check hourly for better accuracy
     
     results = []
     seen_events = set()  # For deduplication

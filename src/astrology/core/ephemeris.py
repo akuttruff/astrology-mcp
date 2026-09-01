@@ -325,11 +325,6 @@ def calculate_houses(
     """
     flag = swe.FLG_SWIEPH
 
-    # Calculate sidereal time
-    t = (jd - 2451545.0) / 36525.0
-    gst = 280.46061837 + 360.98564736629 * (jd - 2451545.0)
-    lst = (gst + longitude) % 360
-
     # Calculate houses using Placidus first to get accurate ASC and MC
     try:
         cusps_placidus, ascmc_placidus = swe.houses(
@@ -344,14 +339,14 @@ def calculate_houses(
     descendant = _convert_to_zonal(ascmc_placidus[2])
     ic = _convert_to_zonal(ascmc_placidus[3])
 
-    # Parse results for house cusps
+    # Parse results for house cusps using the requested system
     houses = {}
-    
+
     if house_system == "W":
         # Whole Sign houses: each house starts at 0° of its sign
         # House 1 starts at the sign where ASC falls
         asc_sign_index = int(ascendant.longitude // 30)
-        
+
         for i in range(12):
             house_num = i + 1
             # House i starts at (asc_sign_index + i - 1) % 12
@@ -359,7 +354,7 @@ def calculate_houses(
             # House cusp is at 0° of that sign
             house_longitude = sign_index * 30.0
             houses[f"house_{house_num}"] = _convert_to_zonal(house_longitude)
-        
+
         # Descendant and IC are 180° from ASC and MC (for Whole Sign consistency)
         descendant_lon = (ascendant.longitude + 180) % 360
         houses["descendant"] = _convert_to_zonal(descendant_lon)
@@ -367,11 +362,28 @@ def calculate_houses(
         houses["ic"] = _convert_to_zonal(ic_lon)
     else:
         # Other house systems: use their actual cusps
-        for i, cusp in enumerate(cusps_placidus):
-            house_num = i + 1
-            houses[f"house_{house_num}"] = _convert_to_zonal(cusp)
+        try:
+            cusps, ascmc = swe.houses(
+                jd, latitude, longitude, house_system.encode()
+            )
+            for i, cusp in enumerate(cusps):
+                house_num = i + 1
+                houses[f"house_{house_num}"] = _convert_to_zonal(cusp)
 
-    # Store ascendant and MC directly
+            # Store ASC and MC from the actual calculation
+            houses["ascendant"] = _convert_to_zonal(ascmc[0])
+            houses["midheaven"] = _convert_to_zonal(ascmc[1])
+            houses["descendant"] = _convert_to_zonal(ascmc[2])
+            houses["ic"] = _convert_to_zonal(ascmc[3])
+        except Exception as e:
+            # Fallback to Placidus if requested system fails
+            for i, cusp in enumerate(cusps_placidus):
+                house_num = i + 1
+                houses[f"house_{house_num}"] = _convert_to_zonal(cusp)
+            houses["ascendant"] = ascendant
+            houses["midheaven"] = midheaven
+
+    # Store ASC and MC directly (for backward compatibility)
     houses["ascendant"] = ascendant
     houses["mc"] = midheaven
 

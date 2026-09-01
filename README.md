@@ -13,7 +13,7 @@ A Python-based astrology calculation tool using Swiss Ephemeris for use with MCP
 ### Supported House Systems
 
 - **Whole Sign** (default) - Each house corresponds to a full zodiac sign
-- Placidus, Equal House, Koch, Porphyry, and Regiomontanus available
+- Placidus, Equal House, Koch, Porphyry, and Regiomontanus available (see `get_houses` tool documentation)
 
 ## Installation
 

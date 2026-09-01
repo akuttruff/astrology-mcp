@@ -68,9 +68,11 @@ def gregorian_to_julian_day(year: int, month: int, day: float, hour: float = 12.
     # Julian Ephemeris Time correction (approximate)
     # T = (JD - 2451545.0) / 36525
     t = (jd - 2451545.0) / 36525
-    delta_t = 2.611 + (0.5831 * t)  # Approximate Delta T in days
+    # Delta T in seconds (not days) - approximation for TT-UT1
+    # This value is small and typically ignored for most astrological purposes
+    delta_t_seconds = 69.0 * t + 24.0  # Approximate in seconds
 
-    jde = jd + delta_t
+    jde = jd + (delta_t_seconds / 86400.0)  # Convert seconds to days
 
     return JulianDay(
         jd=jd,

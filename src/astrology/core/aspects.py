@@ -117,14 +117,13 @@ def calculate_aspect(
         # Early exit: perfect match
         if diff == angle:
             return aspect_type, angle
-        
-        # Check both direct and orb-like cases
-        for base_angle in (angle, angle - 360):
-            diff_from_aspect = abs(diff - base_angle)
-            if diff_from_aspect < min_diff:
-                min_diff = diff_from_aspect
-                best_aspect = aspect_type
-                best_angle = angle
+
+        # Check orb-like cases (no need for negative base_angle since diff is always positive)
+        diff_from_aspect = abs(diff - angle)
+        if diff_from_aspect < min_diff:
+            min_diff = diff_from_aspect
+            best_aspect = aspect_type
+            best_angle = angle
 
     return best_aspect, best_angle
 
@@ -196,27 +195,32 @@ def calculate_planet_aspect(
         # Use short arc calculation to handle circular nature of zodiac
         # This correctly handles cases like Planet 1 at 355° catching Planet 2 at 5°
         lon_diff = (lon2 - lon1) % 360
-        
+
         if lon_diff > 180:
             # Planet 2 is behind Planet 1 (counter-clockwise direction)
             # Planet 2 needs to catch up
-            if speed2 > speed1:
-                is_applying = True
-            else:
+            # Handle retrograde motion correctly: negative speeds mean moving backward
+            relative_speed = speed2 - speed1
+            if relative_speed < 0:
                 is_separating = True
+            else:
+                is_applying = True
         elif lon_diff < 180:
             # Planet 2 is ahead of Planet 1 (clockwise direction)
             # Planet 1 needs to catch up
-            if speed1 > speed2:
-                is_applying = True
-            else:
+            # Handle retrograde motion correctly: negative speeds mean moving backward
+            relative_speed = speed1 - speed2
+            if relative_speed < 0:
                 is_separating = True
+            else:
+                is_applying = True
         # If lon_diff == 180 (opposition), use speed comparison
         else:
-            if speed1 > speed2:
-                is_applying = True
-            elif speed2 > speed1:
+            relative_speed = speed1 - speed2
+            if relative_speed < 0:
                 is_separating = True
+            elif relative_speed > 0:
+                is_applying = True
     else:
         # If speeds are unknown, mark as applying if orb is small (within 5°)
         # This provides a reasonable default for historical/future dates

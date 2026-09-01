@@ -44,5 +44,9 @@ mcp.json
 .DS_Store
 Thumbs.db
 
+# Log files
+*.log
+astrology_mcp_server.log
+
 # Lock files (optional - uncomment if you don't want to track)
 # uv.lock
