@@ -22,6 +22,12 @@ from ..core.ephemeris import (
 )
 from ..charts.chart import NatalChart
 
+# Import transit timing module
+from .transit_timing import (
+    bisection_solver,
+    signed_angular_difference_v2,
+)
+
 
 class TransitEvent(NamedTuple):
     """A transit event between a transiting planet and natal planet/point."""
@@ -305,32 +311,90 @@ def get_transit_summary(transits: list[TransitEvent], limit: int = 10) -> str:
 # Date-Range Transit Scanning (Tier 1 - eliminates workarounds)
 # =============================================================================
 
+def refine_transit_with_bisection(
+    transit_planet: Planet,
+    natal_planet: Planet,
+    natal_lon: float,
+    aspect_type: AspectType,
+    exact_angle: float,
+    bracket_start: datetime,
+    bracket_end: datetime,
+) -> dict:
+    """Refine a transit event using bisection to find exact timing.
+
+    Args:
+        transit_planet: The transiting planet
+        natal_planet: The natal planet being transited
+        natal_lon: Natal longitude (0-360)
+        aspect_type: The type of aspect
+        exact_angle: Exact angle for the aspect (0, 90, 120, 180, etc.)
+        bracket_start: Start of time bracket
+        bracket_end: End of time bracket
+
+    Returns:
+        Dict with exact timing info from bisection
+    """
+    from ..core.ephemeris import get_planet_position
+
+    def transit_lon_at_jd(jd: float) -> float:
+        """Get transiting planet longitude at given Julian Day."""
+        pos = get_planet_position(transit_planet, jd)
+        return pos.longitude
+
+    # Convert bracket to JD
+    start_jd = gregorian_to_julian_day(
+        bracket_start.year, bracket_start.month,
+        bracket_start.day + bracket_start.hour / 24 + bracket_start.minute / 1440
+    ).jd
+
+    end_jd = gregorian_to_julian_day(
+        bracket_end.year, bracket_end.month,
+        bracket_end.day + bracket_end.hour / 24 + bracket_end.minute / 1440
+    ).jd
+
+    # Run bisection solver
+    result = bisection_solver(
+        transit_lon_func=transit_lon_at_jd,
+        natal_lon=natal_lon,
+        exact_angle=exact_angle,
+        t0_jd=start_jd,
+        t1_jd=end_jd,
+    )
+
+    return result.to_dict()
+
+
 def calculate_transit_for_date_range(
     natal_chart: NatalChart,
     start_date: datetime,
     end_date: datetime,
     min_orb: float = 2.0,
+    refine_with_bisection: bool = True,
 ) -> list[TransitEvent]:
     """Calculate all transits in a date range, deduped and structured.
-    
+
+    This function samples at 1-hour intervals to find potential transit events,
+    then optionally refines the exact timing using bisection interpolation.
+
     Args:
         natal_chart: The natal chart
         start_date: Start date for scanning
-        end_date: End date for scanning  
+        end_date: End date for scanning
         min_orb: Minimum orb to include (smaller = more significant)
+        refine_with_bisection: If True, use bisection to find exact timing
 
     Returns:
-        List of TransitEvent objects with exact timestamps and peak orb windows
+        List of TransitEvent objects with enhanced timing info
     """
     from ..core.ephemeris import get_all_planets, get_planet_position
     from datetime import timedelta
-    
-    # Daily sampling - can increase for more precision
-    sample_interval_hours = 1  # Check hourly for better accuracy
-    
+
+    # Hourly sampling for better accuracy (Moon moves ~0.6°/hr)
+    sample_interval_hours = 1
+
     results = []
     seen_events = set()  # For deduplication
-    
+
     current_date = start_date
     while current_date <= end_date:
         # Get Julian Day for this date
@@ -340,10 +404,10 @@ def calculate_transit_for_date_range(
             current_date.day,
             current_date.hour + current_date.minute/60
         )
-        
+
         # Get transiting positions for all planets
         transiting_positions = get_all_planets(jd.jd)
-        
+
         # Check aspects for each transiting planet to natal positions
         major_planets = [
             Planet.SUN, Planet.MOON,
@@ -351,18 +415,18 @@ def calculate_transit_for_date_range(
             Planet.JUPITER, Planet.SATURN,
             Planet.URANUS, Planet.NEPTUNE, Planet.PLUTO
         ]
-        
+
         for transit_planet in major_planets:
             if transit_planet not in transiting_positions:
                 continue
-                
+
             transit_pos = transiting_positions[transit_planet]
-            
+
             # Build natal positions dict
             natal_positions = {}
             for planet, pos in natal_chart.planets.items():
                 natal_positions[planet] = pos
-            
+
             if natal_chart.ascendant:
                 natal_positions[Planet.ASCENDANT] = PlanetPosition(
                     planet=Planet.ASCENDANT,
@@ -375,58 +439,143 @@ def calculate_transit_for_date_range(
                     longitude=natal_chart.midheaven.longitude,
                     latitude=0.0, distance=1.0, retrograde=False, motion_speed=0.0
                 )
-            
+
             # Check aspects to each natal planet/point
             for natal_planet, natal_pos in natal_positions.items():
                 aspect = calculate_aspect(
                     transit_pos.longitude,
                     natal_pos.longitude
                 )
-                
+
                 if aspect:
                     aspect_type, exact_angle = aspect
-                    
+
                     # Calculate orb
                     diff = abs((transit_pos.longitude - natal_pos.longitude) % 360)
                     if diff > 180:
                         diff = 360 - diff
-                    
+
                     orb = abs(diff - exact_angle)
-                    
+
                     if orb <= min_orb:
-                        # Create deduplication key
+                        # Create deduplication key (include hour for finer granularity)
                         key = (
                             transit_planet,
                             natal_planet,
                             aspect_type,
-                            current_date.date().isoformat()  # Dedupe by date
+                            current_date.date().isoformat(),
+                            current_date.hour  # Include hour for dedup
                         )
-                        
+
                         if key not in seen_events:
                             seen_events.add(key)
-                            
-                            event = TransitEvent(
-                                planet=transit_planet,
-                                natal_planet=natal_planet,
-                                natal_position=natal_pos.longitude,  # 0-360 degrees
-                                transit_position=transit_pos.longitude,
-                                aspect_type=aspect_type,
-                                orb=orb,
-                            )
-                            results.append(event)
-        
+
+                            # Store sample data for potential bisection refinement
+                            event_info = {
+                                "planet": transit_planet,
+                                "natal_planet": natal_planet,
+                                "natal_position": natal_pos.longitude,
+                                "transit_position": transit_pos.longitude,
+                                "aspect_type": aspect_type,
+                                "orb": orb,
+                                "sample_time": current_date,
+                            }
+                            results.append(event_info)
+
         # Advance to next sample interval
         current_date += timedelta(hours=sample_interval_hours)
-    
+
     # Sort by orb (most significant first - smallest orb)
-    results.sort(key=lambda e: e.orb)
-    
-    return results
+    results.sort(key=lambda e: e["orb"])
+
+    # Group events by (planet, natal_planet, aspect_type) to find peak orb
+    grouped: dict[tuple, list[dict]] = {}
+    for event in results:
+        key = (event["planet"], event["natal_planet"], event["aspect_type"])
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(event)
+
+    # For each group, find the best sample and refine with bisection
+    final_events = []
+    for key, group in grouped.items():
+        transit_planet, natal_planet, aspect_type = key
+
+        # Find sample with minimum orb (closest to exact)
+        best_sample = min(group, key=lambda e: e["orb"])
+        sample_time = best_sample["sample_time"]
+
+        # Get bracket samples (neighbors of best)
+        best_idx = group.index(best_sample)
+
+        if refine_with_bisection and len(group) >= 3:
+            # Get bracket from neighbors
+            left_idx = max(0, best_idx - 1)
+            right_idx = min(len(group) - 1, best_idx + 1)
+
+            bracket_start = group[left_idx]["sample_time"]
+            bracket_end = group[right_idx]["sample_time"]
+
+            # Get exact angle for aspect type
+            max_orb = DEFAULT_ORBS.get(aspect_type, 8.0)
+
+            # Determine exact angle from max orb (conjunction=8°, square=5°, etc.)
+            # This is approximate - we use the max orb as reference
+            aspect_angles = {
+                AspectType.CONJUNCTION: 0.0,
+                AspectType.OPPOSITION: 180.0,
+                AspectType.SQUARE: 90.0,
+                AspectType.TRINE: 120.0,
+                AspectType.SEXTILE: 60.0,
+            }
+            exact_angle = aspect_angles.get(aspect_type, 0.0)
+
+            # Run bisection refinement
+            timing_info = refine_transit_with_bisection(
+                transit_planet=transit_planet,
+                natal_planet=natal_planet,
+                natal_lon=best_sample["natal_position"],
+                aspect_type=aspect_type,
+                exact_angle=exact_angle,
+                bracket_start=bracket_start,
+                bracket_end=bracket_end,
+            )
+
+            # Update event with timing info
+            refined_event = best_sample.copy()
+            refined_event["timing_info"] = timing_info
+
+            # Create TransitEvent with refined information
+            event = TransitEvent(
+                planet=refined_event["planet"],
+                natal_planet=refined_event["natal_planet"],
+                natal_position=refined_event["natal_position"],
+                transit_position=refined_event["transit_position"],
+                aspect_type=refined_event["aspect_type"],
+                orb=round(timing_info.get("min_orb", refined_event["orb"]), 4),
+            )
+        else:
+            # No refinement - use best sample
+            event = TransitEvent(
+                planet=best_sample["planet"],
+                natal_planet=best_sample["natal_planet"],
+                natal_position=best_sample["natal_position"],
+                transit_position=best_sample["transit_position"],
+                aspect_type=best_sample["aspect_type"],
+                orb=best_sample["orb"],
+            )
+
+        final_events.append(event)
+
+    # Sort by orb one more time after refinement
+    final_events.sort(key=lambda e: e.orb)
+
+    return final_events
 
 
 def transit_to_dict(event: TransitEvent, natal_chart: NatalChart) -> dict:
     """Convert a TransitEvent to structured JSON with full position info.
-    
+
     Args:
         event: The TransitEvent
         natal_chart: The natal chart for context
@@ -435,8 +584,8 @@ def transit_to_dict(event: TransitEvent, natal_chart: NatalChart) -> dict:
         Structured dictionary with all position info
     """
     from ..charts.chart import get_planet_sign, get_planet_degree
-    
-    return {
+
+    result = {
         "transiting_planet": {
             "name": event.planet.name,
             "sign": get_planet_sign(event.planet, event.transit_position),
@@ -454,10 +603,15 @@ def transit_to_dict(event: TransitEvent, natal_chart: NatalChart) -> dict:
         "exact_angle": float(DEFAULT_ORBS.get(event.aspect_type, 8.0))
     }
 
+    # Add peak orb window with timing info
+    result["peak_orb_window"] = get_peak_orb_window(event)
+
+    return result
+
 
 def transit_report_to_json(events: list[TransitEvent], natal_chart: NatalChart) -> dict:
     """Convert transit events to full structured JSON response.
-    
+
     Args:
         events: List of TransitEvent objects
         natal_chart: The natal chart
@@ -476,28 +630,48 @@ def transit_report_to_json(events: list[TransitEvent], natal_chart: NatalChart) 
     }
 
 
-def get_peak_orb_window(event: TransitEvent) -> dict:
+def get_peak_orb_window(event: TransitEvent, timing_info: dict | None = None) -> dict:
     """Get the peak orb window for a transit event.
-    
+
     Args:
         event: The TransitEvent
+        timing_info: Optional dict with bisection timing results
 
     Returns:
         Dict with exact timestamp and orb range
     """
-    # For now, return the current orb as the peak
-    # In a full implementation, this would interpolate to find exact timing
-    return {
-        "exact_aspect_orb": round(event.orb, 4),
-        "orb_range": {
-            "min": round(max(0, event.orb - 0.5), 4),
-            "max": round(event.orb + 0.5, 4)
-        },
-        "within_1_degree_window": {
-            "start": round(max(0, event.orb - 1.0), 4),
-            "end": round(event.orb + 1.0, 4)
+    if timing_info:
+        # Use bisection results when available
+        exact_time = timing_info.get("exact_time")
+        min_orb = timing_info.get("min_orb", event.orb)
+        aspect_status = timing_info.get("aspect_status", "UNKNOWN")
+
+        return {
+            "exact_aspect_orb": round(min_orb, 4),
+            "orb_range": {
+                "min": round(max(0, min_orb - 0.5), 4),
+                "max": round(min_orb + 0.5, 4)
+            },
+            "within_1_degree_window": {
+                "start": round(max(0, min_orb - 1.0), 4),
+                "end": round(min_orb + 1.0, 4)
+            },
+            "exact_time": exact_time,
+            "aspect_status": aspect_status,
         }
-    }
+    else:
+        # Fallback for events without bisection timing
+        return {
+            "exact_aspect_orb": round(event.orb, 4),
+            "orb_range": {
+                "min": round(max(0, event.orb - 0.5), 4),
+                "max": round(event.orb + 0.5, 4)
+            },
+            "within_1_degree_window": {
+                "start": round(max(0, event.orb - 1.0), 4),
+                "end": round(event.orb + 1.0, 4)
+            },
+        }
 
 
 # =============================================================================
