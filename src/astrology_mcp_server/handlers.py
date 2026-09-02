@@ -24,6 +24,7 @@ from astrology.core.ephemeris import Planet, PlanetPosition, ZonalPosition, ZODI
 from astrology.core.aspects import get_major_aspects
 from astrology.transits.transit import get_current_transits
 from .transit_utils import get_aspect_display_name, is_major_aspect
+from .transit_timing import interpolate_exact_moment
 
 from .cache import (
     _get_cached_result,
@@ -863,6 +864,14 @@ async def handle_scan_transits(arguments: dict[str, Any]) -> list[TextContent]:
                         )
                         
                         if significance_score >= params.min_significance:
+                            # Interpolate to find the exact moment of closest approach
+                            exact_time, exact_orb = interpolate_exact_moment(
+                                transiting_pos.planet,
+                                natal_pos,
+                                current_date - timedelta(hours=12),
+                                current_date + timedelta(hours=12)
+                            )
+                            
                             # Get sign and degree from zonal position
                             transit_sign = transiting_pos.zonal.sign_name
                             transit_degree = transiting_pos.zonal.degree_in_sign
@@ -881,28 +890,28 @@ async def handle_scan_transits(arguments: dict[str, Any]) -> list[TextContent]:
                                 # Get next house cusp (wrap around)
                                 next_i = (i + 1) % len(house_items)
                                 next_cusp = house_items[next_i][1]
-                                
+
                                 # Use .longitude for ZonalPosition objects
                                 cusp_lon = cusp.longitude if hasattr(cusp, 'longitude') else cusp
                                 next_cusp_lon = next_cusp.longitude if hasattr(next_cusp, 'longitude') else next_cusp
-                                
+
                                 # Check if position falls in this house (handle sign wrap-around)
                                 if transit_sign == "Pisces" or (cusp_lon <= transiting_pos.longitude < next_cusp_lon):
                                     transit_house = int(house_num.replace("house_", ""))
                                 if cusp_lon <= natal_pos.longitude < next_cusp_lon:
                                     natal_house = int(house_num.replace("house_", ""))
 
-                            # Calculate peak orb window
-                            peak_window_start = current_date - timedelta(hours=24)
-                            peak_window_end = current_date + timedelta(hours=24)
-                            
+                            # Calculate peak orb window around exact time
+                            peak_window_start = exact_time - timedelta(hours=24)
+                            peak_window_end = exact_time + timedelta(hours=24)
+
                             transit_events.append({
                                 "transiting_planet": transiting_pos.planet.name,
                                 "natal_planet": natal_planet.name,
                                 "aspect_type": aspect_name,
-                                "orb_size": round(orb, 2),
+                                "orb_size": round(exact_orb, 2),
                                 "significance_score": round(significance_score, 3),
-                                "exact_timestamp": current_date.isoformat(),
+                                "exact_timestamp": exact_time.isoformat(),
                                 "transiting_sign": transit_sign,
                                 "transiting_degree": round(transit_degree, 2),
                                 "natal_sign": natal_sign,
@@ -911,8 +920,8 @@ async def handle_scan_transits(arguments: dict[str, Any]) -> list[TextContent]:
                                 "natal_house": natal_house,
                                 # Peak orb window: exact moment + 1 degree range
                                 "peak_orb_window": {
-                                    "exact_moment": current_date.isoformat(),
-                                    "orb_range_degrees": round(orb, 2),
+                                    "exact_moment": exact_time.isoformat(),
+                                    "orb_range_degrees": round(exact_orb, 2),
                                     "within_1_degree_window": {
                                         "start": peak_window_start.isoformat(),
                                         "end": peak_window_end.isoformat()
